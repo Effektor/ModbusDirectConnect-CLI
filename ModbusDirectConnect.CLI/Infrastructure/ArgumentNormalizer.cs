@@ -6,8 +6,6 @@ public static class ArgumentNormalizer
 {
     private static readonly HashSet<string> TopLevelCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "read",
-        "write",
         "help"
     };
 

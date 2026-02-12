@@ -25,13 +25,13 @@ jobs:
         include:
           - os: ubuntu-latest
             rid: linux-x64
-            artifact_name: modbus-cli-linux-x64
+            artifact_name: mbdc-linux-x64
           - os: windows-latest
             rid: win-x64
-            artifact_name: modbus-cli-windows-x64
+            artifact_name: mbdc-windows-x64
           - os: macos-latest
             rid: osx-x64
-            artifact_name: modbus-cli-macos-x64
+            artifact_name: mbdc-macos-x64
 
     steps:
     - name: Checkout code
@@ -71,12 +71,12 @@ jobs:
       run: |
         mkdir -p ./artifacts
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp ./publish/${{ matrix.rid }}/modbus-cli.exe ./artifacts/
+          cp ./publish/${{ matrix.rid }}/mbdc.exe ./artifacts/
           cp ./LICENSE ./artifacts/
           cp ./README.md ./artifacts/
         else
-          cp ./publish/${{ matrix.rid }}/modbus-cli ./artifacts/
-          chmod +x ./artifacts/modbus-cli
+          cp ./publish/${{ matrix.rid }}/mbdc ./artifacts/
+          chmod +x ./artifacts/mbdc
           cp ./LICENSE ./artifacts/
           cp ./README.md ./artifacts/
         fi

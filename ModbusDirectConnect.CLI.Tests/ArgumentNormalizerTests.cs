@@ -7,20 +7,20 @@ public class ArgumentNormalizerTests
     [Fact]
     public void Normalize_InjectsTargetForFirstTokenWhenNotCommand()
     {
-        var args = new[] { "COM3", "read", "coils", "0", "8" };
+        var args = new[] { "COM3", "--read-coil", "0", "--count", "8" };
 
         var normalized = ArgumentNormalizer.Normalize(args);
 
-        Assert.Equal(new[] { "--target", "COM3", "read", "coils", "0", "8" }, normalized);
+        Assert.Equal(new[] { "--target", "COM3", "--read-coil", "0", "--count", "8" }, normalized);
     }
 
     [Fact]
     public void Normalize_ConvertsVerboseShorthandAndCapsAtThree()
     {
-        var args = new[] { "-vv", "-v", "read", "coils", "0", "8" };
+        var args = new[] { "-vv", "-v", "--read-coil", "0", "--count", "8" };
 
         var normalized = ArgumentNormalizer.Normalize(args);
 
-        Assert.Equal(new[] { "read", "coils", "0", "8", "--verbosity-level", "3" }, normalized);
+        Assert.Equal(new[] { "--read-coil", "0", "--count", "8", "--verbosity-level", "3" }, normalized);
     }
 }

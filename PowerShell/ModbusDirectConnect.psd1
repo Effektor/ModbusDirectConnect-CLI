@@ -25,14 +25,14 @@
     
     # Functions to export from this module
     FunctionsToExport = @(
-        'Read-ModbusCoils',
-        'Read-ModbusDiscreteInputs',
-        'Read-ModbusHoldingRegisters',
-        'Read-ModbusInputRegisters',
-        'Write-ModbusCoil',
-        'Write-ModbusRegister',
-        'Write-ModbusCoils',
-        'Write-ModbusRegisters'
+        'Get-ModbusCoil',
+        'Get-ModbusDiscreteInput',
+        'Get-ModbusHoldingRegister',
+        'Get-ModbusInputRegister',
+        'Set-ModbusCoil',
+        'Set-ModbusRegister',
+        'Set-ModbusCoils',
+        'Set-ModbusRegisters'
     )
     
     # Cmdlets to export from this module

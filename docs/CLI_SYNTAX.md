@@ -1,77 +1,64 @@
-# mbdc-cli Command Syntax (Draft v1)
+# mbdc CLI Syntax
 
 ## Core Pattern
 ```bash
-mbdc-cli [global-options] [target] <command> <subcommand> [arguments] [options]
+mbdc [target] [global-options] <operation> [operation-options]
 ```
 
-`target` is optional when `--host` or transport-specific options are provided. If present as the first token and it is not a command, it is treated as endpoint input.
+`target` can be an IP/host or serial device path and is inferred when the first token is not an option.
 
-## Commands
-- `read`
-- `write`
+## Read Operations
+- `--read-coil <address>`, `--rc <address>`, `-rc <address>`
+- `--read-discrete <address>`, `--rd <address>`, `-rd <address>`
+- `--read-holding <address>`, `--rh <address>`, `-rh <address>`
+- `--read-inputreg <address>`, `--ri <address>`, `-ri <address>`
+- `--count <n>`, `-c <n>`
 
-## Read Subcommands
-- `read coils <address> <count>`
-- `read discrete-inputs <address> <count>`
-- `read holding-registers <address> <count>`
-- `read input-registers <address> <count>`
+## Write Operations
+- `--write-coil <address>`, `--wc <address>`, `-wc <address>` + `--data <value>`, `-d <value>`
+- `--write-reg <address>`, `--wr <address>`, `-wr <address>` + `--data <value>`, `-d <value>`
+- `--write-multi-coil <address>` + `--data <payload>`, `-d <payload>`
+- `--write-multi-reg <address>` + `--data <payload>`, `-d <payload>`
 
-## Write Subcommands
-- `write coil <address> <value>`
-- `write register <address> <value>`
-- `write coils <address> <values>`
-- `write registers <address> <values>`
+Only one operation flag may be used per command invocation.
 
-## Global Options
-- `-P, --protocol <tcp|rtu-tcp|rtu-serial>`
-- `-H, --host <host>`
-- `-p, --port <port>`
-- `-s, --slave <unit-id>`
-- `-t, --timeout <ms>`
+## Transport Options
+- `--rtu` use RTU framing (RTU-over-TCP for network targets)
+- `--serial <port>` force serial target (e.g. `COM5`, `/dev/serial1`)
+- `--ascii` Modbus ASCII mode (reserved; not yet implemented)
+
+## General Options
+- `--port <port>`, `-p <port>` default `502`
+- `--slave <id>`, `-s <id>` default `1`
+- `--timeout <ms>`, `-t <ms>` default `5000`
 - `-v`, `-vv`, `-vvv` verbosity levels
-
-## Serial Options
-- `--baud <rate>` default `9600`
-- `--data-bits <5|6|7|8>` default `8`
-- `--parity <none|even|odd>` default `none`
-- `--stop-bits <one|two>` default `one`
-
-## Read Output Options
-- `-f, --format <u16|hex|ascii|utf8|cstring>`
-- `--word-order <be|le>` controls register byte order for text/hex modes
-- `--no-header` omit section headers
-
-## Continuous/Monitor Read Options
-- `-w, --watch` run continuously
-- `--interval-ms <ms>` default `1000`
-- `--same-line` rewrite one line (monitor style)
-
-## Transport Inference Rules
-When `--protocol` is omitted:
-1. If target starts with `/dev/` or matches `COM[0-9]+` -> `rtu-serial`
-2. If target starts with `rtu-tcp://` -> `rtu-tcp`
-3. If target starts with `tcp://` -> `tcp`
-4. Otherwise -> `tcp`
 
 ## Examples
 ```bash
-# TCP inferred
-mbdc-cli 192.168.1.10 read holding-registers 100 4
+# Read from TCP slave
+mbdc 192.168.1.1 --read-coil 1 --count 5
 
-# RTU serial inferred
-mbdc-cli /dev/ttyUSB0 read input-registers 0 8
-mbdc-cli COM3 read coils 10 16
+# Read from RTU-over-TCP slave
+mbdc 192.168.1.1 --rtu --read-coil 1 --count 5
 
-# Explicit RTU over TCP
-mbdc-cli rtu-tcp://192.168.1.20:502 read holding-registers 0 6
+# Read from serial on Windows
+mbdc --serial COM5 --read-coil 1 --count 5
 
-# UTF-8 decode as text from holding registers
-mbdc-cli 192.168.1.10 read holding-registers 600 8 --format utf8
+# Read from serial on Linux
+mbdc /dev/serial1 --read-coil 1 --count 5
 
-# C-string decode with continuous monitor output on one line
-mbdc-cli 192.168.1.10 read holding-registers 600 16 --format cstring --watch --same-line --interval-ms 250
+# Read from serial in ASCII mode (not yet implemented)
+mbdc /dev/serial1 --ascii --rc 2 -c 5
 
-# Transport diagnostics
-mbdc-cli -vvv 192.168.1.10 read coils 0 16
+# Write single coil
+mbdc 192.168.1.1 --write-coil 2 --data 0x0014
+
+# Write single register
+mbdc 192.168.1.1 --write-reg 2 --data 0x1234
+
+# Write multiple coils
+mbdc 192.168.1.1 --write-multi-coil 2 --data 1234
+
+# Write multiple registers
+mbdc 192.168.1.1 --write-multi-reg 2 --data 0xFFFF
 ```
