@@ -1,7 +1,7 @@
 # ModbusDirectConnect PowerShell Module
 # This module provides PowerShell cmdlets for the ModbusDirectConnect CLI
 
-# Get the path to the modbus-cli executable
+# Get the path to the mbdc executable
 $script:ModbusCliPath = $null
 
 function Get-ModbusCliPath {
@@ -9,8 +9,8 @@ function Get-ModbusCliPath {
         return $script:ModbusCliPath
     }
     
-    # Try to find modbus-cli in PATH
-    $cliCommand = Get-Command modbus-cli -ErrorAction SilentlyContinue
+    # Try to find mbdc in PATH
+    $cliCommand = Get-Command mbdc -ErrorAction SilentlyContinue
     if ($cliCommand) {
         $script:ModbusCliPath = $cliCommand.Source
         return $script:ModbusCliPath
@@ -19,9 +19,10 @@ function Get-ModbusCliPath {
     # Try to find in module directory
     $moduleDir = Split-Path -Parent $PSScriptRoot
     $possiblePaths = @(
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net8.0\modbus-cli.exe"),
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net8.0\modbus-cli.exe"),
-        (Join-Path $moduleDir "modbus-cli.exe")
+        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net8.0\mbdc.exe"),
+        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net8.0\mbdc.exe"),
+        (Join-Path $moduleDir "mbdc.exe"),
+        (Join-Path $moduleDir "mbdc")
     )
     
     foreach ($path in $possiblePaths) {
@@ -31,15 +32,15 @@ function Get-ModbusCliPath {
         }
     }
     
-    throw "modbus-cli executable not found. Please ensure it is installed and in your PATH, or set the path using Set-ModbusCliPath."
+    throw "mbdc executable not found. Please ensure it is installed and in your PATH, or set the path using Set-ModbusCliPath."
 }
 
 function Set-ModbusCliPath {
     <#
     .SYNOPSIS
-        Sets the path to the modbus-cli executable
+        Sets the path to the mbdc executable
     .PARAMETER Path
-        Full path to the modbus-cli executable
+        Full path to the mbdc executable
     #>
     [CmdletBinding()]
     param(
@@ -75,7 +76,19 @@ function Invoke-ModbusCli {
     }
 }
 
-function Read-ModbusCoils {
+function Get-ProtocolArgs {
+    param(
+        [string]$Protocol
+    )
+
+    if ($Protocol -eq "rtu") {
+        return @("--rtu")
+    }
+
+    return @()
+}
+
+function Get-ModbusCoil {
     <#
     .SYNOPSIS
         Reads coils from a Modbus device
@@ -111,18 +124,18 @@ function Read-ModbusCoils {
     )
     
     $args = @(
-        "read", "coils", $Address, $Count,
-        "--host", $Host,
+        $Host,
+        "--read-coil", $Address,
+        "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Read-ModbusDiscreteInputs {
+function Get-ModbusDiscreteInput {
     <#
     .SYNOPSIS
         Reads discrete inputs from a Modbus device
@@ -158,18 +171,18 @@ function Read-ModbusDiscreteInputs {
     )
     
     $args = @(
-        "read", "discrete-inputs", $Address, $Count,
-        "--host", $Host,
+        $Host,
+        "--read-discrete", $Address,
+        "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Read-ModbusHoldingRegisters {
+function Get-ModbusHoldingRegister {
     <#
     .SYNOPSIS
         Reads holding registers from a Modbus device
@@ -205,18 +218,18 @@ function Read-ModbusHoldingRegisters {
     )
     
     $args = @(
-        "read", "holding-registers", $Address, $Count,
-        "--host", $Host,
+        $Host,
+        "--read-holding", $Address,
+        "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Read-ModbusInputRegisters {
+function Get-ModbusInputRegister {
     <#
     .SYNOPSIS
         Reads input registers from a Modbus device
@@ -252,18 +265,18 @@ function Read-ModbusInputRegisters {
     )
     
     $args = @(
-        "read", "input-registers", $Address, $Count,
-        "--host", $Host,
+        $Host,
+        "--read-inputreg", $Address,
+        "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Write-ModbusCoil {
+function Set-ModbusCoil {
     <#
     .SYNOPSIS
         Writes a single coil to a Modbus device
@@ -298,19 +311,20 @@ function Write-ModbusCoil {
         [string]$Protocol = "tcp"
     )
     
+    $dataValue = if ($Value) { "1" } else { "0" }
     $args = @(
-        "write", "coil", $Address, $Value.ToString().ToLower(),
-        "--host", $Host,
+        $Host,
+        "--write-coil", $Address,
+        "--data", $dataValue,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Write-ModbusRegister {
+function Set-ModbusRegister {
     <#
     .SYNOPSIS
         Writes a single holding register to a Modbus device
@@ -346,18 +360,18 @@ function Write-ModbusRegister {
     )
     
     $args = @(
-        "write", "register", $Address, $Value,
-        "--host", $Host,
+        $Host,
+        "--write-reg", $Address,
+        "--data", $Value,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Write-ModbusCoils {
+function Set-ModbusCoils {
     <#
     .SYNOPSIS
         Writes multiple coils to a Modbus device
@@ -392,21 +406,21 @@ function Write-ModbusCoils {
         [string]$Protocol = "tcp"
     )
     
-    $valuesStr = ($Values | ForEach-Object { $_.ToString().ToLower() }) -join ","
+    $valuesStr = ($Values | ForEach-Object { if ($_ ) { "1" } else { "0" } }) -join ","
     
     $args = @(
-        "write", "coils", $Address, $valuesStr,
-        "--host", $Host,
+        $Host,
+        "--write-multi-coil", $Address,
+        "--data", $valuesStr,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
 
-function Write-ModbusRegisters {
+function Set-ModbusRegisters {
     <#
     .SYNOPSIS
         Writes multiple holding registers to a Modbus device
@@ -444,13 +458,13 @@ function Write-ModbusRegisters {
     $valuesStr = $Values -join ","
     
     $args = @(
-        "write", "registers", $Address, $valuesStr,
-        "--host", $Host,
+        $Host,
+        "--write-multi-reg", $Address,
+        "--data", $valuesStr,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout,
-        "--protocol", $Protocol
-    )
+        "--timeout", $Timeout
+    ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
 }
@@ -459,12 +473,12 @@ function Write-ModbusRegisters {
 Export-ModuleMember -Function @(
     'Get-ModbusCliPath',
     'Set-ModbusCliPath',
-    'Read-ModbusCoils',
-    'Read-ModbusDiscreteInputs',
-    'Read-ModbusHoldingRegisters',
-    'Read-ModbusInputRegisters',
-    'Write-ModbusCoil',
-    'Write-ModbusRegister',
-    'Write-ModbusCoils',
-    'Write-ModbusRegisters'
+    'Get-ModbusCoil',
+    'Get-ModbusDiscreteInput',
+    'Get-ModbusHoldingRegister',
+    'Get-ModbusInputRegister',
+    'Set-ModbusCoil',
+    'Set-ModbusRegister',
+    'Set-ModbusCoils',
+    'Set-ModbusRegisters'
 )

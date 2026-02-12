@@ -2,10 +2,13 @@
 
 Cross-platform CLI wrapper around the `ModbusDirectConnect` NuGet package.
 
+## Executable
+- CLI binary name: `mbdc`
+
 ## Status
-- Implemented: Modbus TCP and Modbus RTU over TCP read/write plumbing.
-- Implemented: transport inference, verbosity (`-v/-vv/-vvv`), register text decoding, watch/monitor mode.
-- Pending: direct RTU over serial runtime support (blocked by public serial channel API availability in `ModbusDirectConnect` `1.1.1` for `net8.0`).
+- Implemented: flat flag-based CLI syntax from `Commands.md`
+- Implemented: Modbus TCP and Modbus RTU-over-TCP operations
+- Pending: direct RTU-over-serial runtime support (blocked by current public API surface in `ModbusDirectConnect` `1.1.1` for `net8.0`)
 
 ## Build
 ```bash
@@ -20,27 +23,20 @@ dotnet test ModbusDirectConnect.CLI.sln
 
 ## Quick Usage
 ```bash
-# TCP inferred from target
-modbus-cli 192.168.1.100 read holding-registers 1000 10
+# Read coils from TCP
+mbdc 192.168.1.1 --read-coil 1 --count 5
 
-# Explicit RTU over TCP
-modbus-cli --protocol rtu-tcp 192.168.1.100:502 read input-registers 0 8 --format utf8
+# Read coils from RTU-over-TCP
+mbdc 192.168.1.1 --rtu --read-coil 1 --count 5
 
-# Verbose with transport diagnostics
-modbus-cli -vvv 192.168.1.100 read coils 0 16
+# Read coils from serial port (inferred)
+mbdc /dev/serial1 --read-coil 1 --count 5
+mbdc --serial COM5 --read-coil 1 --count 5
 
-# Continuous monitor output
-modbus-cli 192.168.1.100 read holding-registers 600 16 --format cstring --watch --same-line --interval-ms 250
+# Write single register
+mbdc 192.168.1.1 --write-reg 2 --data 0x1234
 ```
 
 ## Documentation
 - CLI syntax: `docs/CLI_SYNTAX.md`
 - Implementation plan: `docs/IMPLEMENTATION_PLAN.md`
-
-## NuGet Auth (GitHub Packages)
-If your environment does not already have package feed auth configured:
-
-```bash
-dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
-  --name effektor --username USER --password TOKEN --store-password-in-clear-text
-```
