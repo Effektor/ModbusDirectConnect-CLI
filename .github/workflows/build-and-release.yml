@@ -1,0 +1,176 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact_name: modbus-cli-linux-x64
+          - os: windows-latest
+            rid: win-x64
+            artifact_name: modbus-cli-windows-x64
+          - os: macos-latest
+            rid: osx-x64
+            artifact_name: modbus-cli-macos-x64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        source-url: https://nuget.pkg.github.com/effektor/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure NuGet authentication
+      shell: bash
+      run: |
+        dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
+          --name effektor \
+          --username ${{ github.actor }} \
+          --password ${{ secrets.GITHUB_TOKEN }} \
+          --store-password-in-clear-text || true
+
+    - name: Restore dependencies
+      run: dotnet restore ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj
+
+    - name: Build
+      run: dotnet build ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj --configuration Release --no-restore
+
+    - name: Test
+      run: dotnet test ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj --configuration Release --no-build --verbosity normal
+      continue-on-error: true
+
+    - name: Publish self-contained
+      run: |
+        dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
+          --configuration Release \
+          --runtime ${{ matrix.rid }} \
+          --self-contained true \
+          --output ./publish/${{ matrix.rid }} \
+          -p:PublishSingleFile=true \
+          -p:IncludeNativeLibrariesForSelfExtract=true
+
+    - name: Create artifact directory
+      shell: bash
+      run: |
+        mkdir -p ./artifacts
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp ./publish/${{ matrix.rid }}/modbus-cli.exe ./artifacts/
+          cp ./LICENSE ./artifacts/
+          cp ./README.md ./artifacts/
+        else
+          cp ./publish/${{ matrix.rid }}/modbus-cli ./artifacts/
+          chmod +x ./artifacts/modbus-cli
+          cp ./LICENSE ./artifacts/
+          cp ./README.md ./artifacts/
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ./artifacts/
+        retention-days: 30
+
+  build-powershell-module:
+    name: Build PowerShell Module
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create PowerShell module package
+      run: |
+        mkdir -p ./ps-module-artifacts/ModbusDirectConnect
+        cp -r ./PowerShell/* ./ps-module-artifacts/ModbusDirectConnect/
+        cp ./LICENSE ./ps-module-artifacts/ModbusDirectConnect/
+        cp ./README.md ./ps-module-artifacts/ModbusDirectConnect/
+
+    - name: Upload PowerShell module artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: powershell-module
+        path: ./ps-module-artifacts/
+        retention-days: 30
+
+  release:
+    name: Create Release
+    needs: [build, build-powershell-module]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./release-artifacts
+
+    - name: Create release archives
+      run: |
+        cd release-artifacts
+        
+        # Linux
+        cd modbus-cli-linux-x64
+        tar -czf ../modbus-cli-linux-x64.tar.gz .
+        cd ..
+        
+        # Windows
+        cd modbus-cli-windows-x64
+        zip -r ../modbus-cli-windows-x64.zip .
+        cd ..
+        
+        # macOS
+        cd modbus-cli-macos-x64
+        tar -czf ../modbus-cli-macos-x64.tar.gz .
+        cd ..
+        
+        # PowerShell Module
+        cd powershell-module
+        zip -r ../ModbusDirectConnect-PowerShell.zip .
+        cd ..
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          release-artifacts/modbus-cli-linux-x64.tar.gz
+          release-artifacts/modbus-cli-windows-x64.zip
+          release-artifacts/modbus-cli-macos-x64.tar.gz
+          release-artifacts/ModbusDirectConnect-PowerShell.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
