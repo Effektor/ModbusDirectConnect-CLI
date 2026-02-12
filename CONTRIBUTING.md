@@ -1,9 +1,5 @@
 # Contributing to ModbusDirectConnect-CLI
 
-Thank you for your interest in contributing to ModbusDirectConnect-CLI! This document provides guidelines for contributing to the project.
-
-# Contributing to ModbusDirectConnect-CLI
-
 Thank you for your interest in contributing to ModbusDirectConnect-CLI!
 
 ## Development Setup
