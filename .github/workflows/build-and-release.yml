@@ -9,6 +9,10 @@ on:
     branches: [ main, develop ]
   workflow_dispatch:
 
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -35,6 +39,18 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
+        source-url: https://nuget.pkg.github.com/effektor/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure NuGet authentication
+      shell: bash
+      run: |
+        dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
+          --name effektor \
+          --username ${{ github.actor }} \
+          --password ${{ secrets.GITHUB_TOKEN }} \
+          --store-password-in-clear-text || true
 
     - name: Restore dependencies
       run: dotnet restore ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj
