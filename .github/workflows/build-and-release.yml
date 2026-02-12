@@ -43,16 +43,7 @@ jobs:
         dotnet-version: '8.0.x'
         source-url: https://nuget.pkg.github.com/effektor/index.json
       env:
-        NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Configure NuGet authentication
-      shell: bash
-      run: |
-        dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
-          --name effektor \
-          --username ${{ github.actor }} \
-          --password ${{ secrets.GITHUB_TOKEN }} \
-          --store-password-in-clear-text || true
+        NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || secrets.GITHUB_TOKEN }}
 
     - name: Restore dependencies
       run: dotnet restore ModbusDirectConnect.CLI.sln
