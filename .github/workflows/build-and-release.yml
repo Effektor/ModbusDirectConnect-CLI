@@ -54,16 +54,15 @@ jobs:
     - name: Test
       run: dotnet test ModbusDirectConnect.CLI.sln --configuration Release --no-build --verbosity normal
 
-    - name: Publish self-contained
+    - name: Publish framework-dependent single-file
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
         dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
           --configuration Release \
           --runtime ${{ matrix.rid }} \
-          --self-contained true \
+          --self-contained false \
           --output ./publish/${{ matrix.rid }} \
-          -p:PublishSingleFile=true \
-          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:PublishSingleFile=true
 
     - name: Create artifact directory
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
