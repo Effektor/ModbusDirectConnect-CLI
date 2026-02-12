@@ -1,17 +1,29 @@
+using ModbusDirectConnect.CLI.Transport;
+
 namespace ModbusDirectConnect.CLI.Client;
 
-/// <summary>
-/// Factory for creating Modbus client instances
-/// </summary>
 public static class ModbusClientFactory
 {
+    public static IModbusClient CreateClient(ResolvedConnection connection)
+    {
+        return ModbusDirektClient.Create(connection);
+    }
+
     public static IModbusClient CreateClient(string host, int port, byte slaveId, int timeout, string protocol)
     {
-        return protocol.ToLowerInvariant() switch
-        {
-            "tcp" => new ModbusTcpClient(host, port, slaveId, timeout),
-            "rtu" => throw new NotImplementedException("RTU protocol support will be added with the ModbusDirectConnect library integration"),
-            _ => throw new ArgumentException($"Unknown protocol: {protocol}. Supported protocols: tcp, rtu")
-        };
+        var connection = EndpointResolver.Resolve(new ConnectionOptions(
+            Target: host,
+            Host: host,
+            Port: port,
+            SlaveId: slaveId,
+            Timeout: timeout,
+            Protocol: protocol,
+            SerialPort: null,
+            SerialBaud: 9600,
+            SerialDataBits: 8,
+            SerialParity: "none",
+            SerialStopBits: "one"));
+
+        return CreateClient(connection);
     }
 }
