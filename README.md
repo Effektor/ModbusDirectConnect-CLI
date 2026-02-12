@@ -22,9 +22,7 @@ This CLI tool is a wrapper over the [github.com/Effektor/ModbusDirectConnect](ht
 
 ## Installation
 
-### From Release Binaries (Recommended)
-
-The easiest way to get started is to download pre-built binaries - no compilation or authentication required!
+### Pre-built Binaries (Recommended)
 
 Download the latest release for your platform from the [Releases page](https://github.com/Effektor/ModbusDirectConnect-CLI/releases):
 
@@ -34,31 +32,19 @@ Download the latest release for your platform from the [Releases page](https://g
 
 Extract the archive and add the executable to your PATH.
 
-### From Source
+### Building from Source
 
 Requirements:
 - .NET 8.0 SDK or later
-- GitHub account (for accessing packages from GitHub Packages)
-
-**Note:** The ModbusDirectConnect library is hosted on GitHub Packages, which requires authentication even for public repositories. See [DEVELOPMENT.md](DEVELOPMENT.md) for a quick setup guide.
 
 ```bash
 git clone https://github.com/Effektor/ModbusDirectConnect-CLI.git
-cd ModbusDirectConnect-CLI
-
-# Configure GitHub Packages authentication (see DEVELOPMENT.md for details)
-dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
-  --name effektor \
-  --username YOUR_GITHUB_USERNAME \
-  --password YOUR_GITHUB_TOKEN \
-  --store-password-in-clear-text
-
-# Build the project
-cd ModbusDirectConnect.CLI
+cd ModbusDirectConnect-CLI/ModbusDirectConnect.CLI
 dotnet build -c Release
 ```
 
-**Recommended:** Download pre-built binaries from the [Releases page](https://github.com/Effektor/ModbusDirectConnect-CLI/releases) to avoid authentication setup.
+**Note for Contributors:** If you're building from source for development, you'll need to configure GitHub Packages authentication. See [DEVELOPMENT.md](DEVELOPMENT.md) for instructions.
+
 
 
 

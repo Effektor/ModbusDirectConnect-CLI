@@ -2,6 +2,10 @@
 
 Thank you for your interest in contributing to ModbusDirectConnect-CLI! This document provides guidelines for contributing to the project.
 
+# Contributing to ModbusDirectConnect-CLI
+
+Thank you for your interest in contributing to ModbusDirectConnect-CLI!
+
 ## Development Setup
 
 ### Prerequisites
@@ -9,7 +13,6 @@ Thank you for your interest in contributing to ModbusDirectConnect-CLI! This doc
 - [.NET 8.0 SDK](https://dotnet.microsoft.com/download) or later
 - Git
 - A code editor (Visual Studio, VS Code, Rider, etc.)
-- GitHub account (for accessing packages)
 
 ### Getting Started
 
@@ -20,7 +23,7 @@ Thank you for your interest in contributing to ModbusDirectConnect-CLI! This doc
    cd ModbusDirectConnect-CLI
    ```
 
-3. Set up GitHub Packages authentication (see [DEVELOPMENT.md](DEVELOPMENT.md) for details):
+3. Set up GitHub Packages authentication for building (see [DEVELOPMENT.md](DEVELOPMENT.md)):
    ```bash
    dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
      --name effektor \
@@ -90,17 +93,15 @@ The ModbusDirectConnect library (version 1.1.1) is now available on GitHub Packa
 
 ### Setup Authentication
 
-GitHub Packages requires authentication for all downloads, even from public repositories. Before you can work with the library:
+For building from source, you need GitHub Packages authentication (see [DEVELOPMENT.md](DEVELOPMENT.md)):
 
-1. Create a GitHub Personal Access Token (PAT) with `read:packages` scope
-2. Configure NuGet authentication (see [DEVELOPMENT.md](DEVELOPMENT.md) for detailed instructions):
-   ```bash
-   dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
-     --name effektor \
-     --username YOUR_GITHUB_USERNAME \
-     --password YOUR_GITHUB_TOKEN \
-     --store-password-in-clear-text
-   ```
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/effektor/index.json \
+  --name effektor \
+  --username YOUR_GITHUB_USERNAME \
+  --password YOUR_GITHUB_TOKEN \
+  --store-password-in-clear-text
+```
 
 ### Implementing the Integration
 
