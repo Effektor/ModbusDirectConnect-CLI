@@ -1,51 +1,145 @@
-# ModbusDirectConnect-CLI
+# mbdc
 
-Cross-platform CLI wrapper around the `ModbusDirectConnect` NuGet package.
+`mbdc` is a command-line Modbus client for quick reads, writes, and monitoring.
 
-## Executable
-- CLI binary name: `mbdc`
+It is built for fast troubleshooting and day-to-day field usage.
 
-## Status
-- Implemented: flat flag-based CLI syntax from `HELP.md`
-- Implemented: Modbus TCP and Modbus RTU-over-TCP operations
-- Pending: direct RTU-over-serial runtime support (blocked by current public API surface in `ModbusDirectConnect` `1.1.1`)
-- Implemented: PowerShell cmdlets remain PowerShell-native and intentionally separate from shell CLI syntax.
+## Download
 
-## Build
+Download prebuilt binaries from GitHub Releases:
+- https://github.com/Effektor/ModbusDirectConnect-CLI/releases
+
+Release assets:
+- `mbdc-linux-x64.tar.gz`
+- `mbdc-macos-x64.tar.gz`
+- `mbdc-windows-x64.zip`
+- `ModbusDirectConnect-PowerShell.zip` (PowerShell module package)
+
+## Install
+
+### Linux
 ```bash
-dotnet restore ModbusDirectConnect.CLI.sln
-dotnet build ModbusDirectConnect.CLI.sln
+tar -xzf mbdc-linux-x64.tar.gz
+chmod +x mbdc
+sudo mv mbdc /usr/local/bin/
+mbdc --version
 ```
 
-## Test
+### macOS
 ```bash
-dotnet test ModbusDirectConnect.CLI.sln
+tar -xzf mbdc-macos-x64.tar.gz
+chmod +x mbdc
+sudo mv mbdc /usr/local/bin/
+mbdc --version
 ```
 
-## Quick Usage
-```bash
-# Read coils from TCP
-mbdc 192.168.1.1 --read-coil 1 --count 5
-
-# Read coils from RTU-over-TCP
-mbdc 192.168.1.1 --rtu --read-coil 1 --count 5
-
-# Read coils from serial port (inferred)
-mbdc /dev/serial1 --read-coil 1 --count 5
-mbdc --serial COM5 --read-coil 1 --count 5
-
-# Write single register
-mbdc 192.168.1.1 --write-reg 2 --data 0x1234
+### Windows
+1. Extract `mbdc-windows-x64.zip`
+2. Put `mbdc.exe` in a folder on your `PATH`
+3. Run:
+```powershell
+mbdc --version
 ```
 
-## Documentation
-- CLI technical specification: `HELP.md`
-- Runtime `--help` text source: `help.txt`
-- Flag milestone tracker: `docs/FLAG_MILESTONES.md`
-- CLI syntax: `docs/CLI_SYNTAX.md`
-- Implementation plan: `docs/IMPLEMENTATION_PLAN.md`
+## Command Pattern
 
-## Releases
-- Versioning and release PRs are managed by `release-please`.
-- Build/test runs are handled in `.github/workflows/build-and-release.yml`.
-- Release publishing (GitHub release assets for CLI + PowerShell module) is handled in `.github/workflows/release-please.yml`.
+```bash
+mbdc [TARGET] [TRANSPORT OPTIONS] [OPERATION] [DATA/OUTPUT OPTIONS]
+```
+
+- `TARGET`: `host`, `host:port`, `/dev/tty...`, `COM...`
+- Exactly one operation is required per command.
+- `SPEC` accepts `ADDR` or `ADDR:COUNT`.
+
+## What Works Today
+
+- Modbus TCP reads/writes
+- Modbus RTU-over-TCP reads/writes
+- Read operations:
+  - `--read-coil`
+  - `--read-discrete`
+  - `--read-holding`
+  - `--read-inputreg`
+  - `--ref` (Modicon reference addressing)
+- Register write operations:
+  - `--write-reg`
+  - `--write-multi-reg`
+- Monitoring modes:
+  - `--watch [SEC]`
+  - `--monitor [SEC]`
+
+## Quick Examples
+
+### Read coils (TCP)
+```bash
+mbdc 192.168.1.10 --read-coil 0:8
+```
+
+### Read holding registers using Modicon reference
+```bash
+mbdc 192.168.1.10 --ref 40001:10
+```
+
+### Read via RTU-over-TCP
+```bash
+mbdc 192.168.1.10 --rtu --read-holding 0:6
+```
+
+### Watch values continuously
+```bash
+mbdc 192.168.1.10 --read-inputreg 0:20 --watch 0.5 --only-changed
+```
+
+### Decode register bytes as string
+```bash
+mbdc 192.168.1.10 --read-holding 100:16 --string --string-len 32 --null-term --encoding iso-8859-1
+```
+
+### Write a single holding register
+```bash
+mbdc 192.168.1.10 --write-reg 2 --data 0x1234
+```
+
+### Write multiple holding registers
+```bash
+mbdc 192.168.1.10 --write-multi-reg 10 --data 1,2,3,4
+```
+
+## Output Controls
+
+- Verbosity: `-v`, `-vv`, `-vvv`
+- Minimal output: `--quiet`
+- JSON output: `--json`
+- Timestamps: `--timestamp`
+- Bit/hex views for coil/discrete reads: `--bits`, `--hex`
+
+## PowerShell Module
+
+A PowerShell module is available as `ModbusDirectConnect-PowerShell.zip` in Releases.
+
+It provides cmdlets such as:
+- `Get-ModbusCoil`
+- `Get-ModbusDiscreteInput`
+- `Get-ModbusHoldingRegister`
+- `Get-ModbusInputRegister`
+- `Set-ModbusRegister`
+- `Set-ModbusRegisters`
+
+## Current Limitations
+
+- RTU over serial is not available yet in runtime (`--serial` targets are parsed, but runtime support is pending).
+- Coil write routes are parsed (`--write-coil`, `--write-multi-coil`) but not available in the current library runtime.
+- `--ascii` is reserved and currently returns not implemented.
+- Some advanced decode/format flags are accepted as milestones but are not fully implemented yet.
+
+## Help
+
+For the full up-to-date command reference from the binary itself:
+
+```bash
+mbdc --help
+```
+
+## License
+
+GPL-3.0. See `LICENSE`.
