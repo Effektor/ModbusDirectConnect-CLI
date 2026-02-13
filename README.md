@@ -10,16 +10,21 @@ Download prebuilt binaries from GitHub Releases:
 - https://github.com/Effektor/ModbusDirectConnect-CLI/releases
 
 Release assets:
-- `mbdc-linux-x64.tar.gz`
+- `mbdc-linux-amd64.tar.gz`
+- `mbdc-linux-arm64.tar.gz`
 - `mbdc-macos-x64.tar.gz`
 - `mbdc-windows-x64.zip`
+- `mbdc_<version>_amd64.deb`
+- `mbdc_<version>_arm64.deb`
 - `ModbusDirectConnect-PowerShell.zip` (PowerShell module package)
 
 ## Install
 
 ### Linux
 ```bash
-tar -xzf mbdc-linux-x64.tar.gz
+# for x86_64 / amd64 use mbdc-linux-amd64.tar.gz
+# for ARM64 use mbdc-linux-arm64.tar.gz
+tar -xzf mbdc-linux-amd64.tar.gz
 chmod +x mbdc
 sudo mv mbdc /usr/local/bin/
 mbdc --version

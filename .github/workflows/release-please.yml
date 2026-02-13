@@ -116,15 +116,31 @@ jobs:
         include:
           - os: ubuntu-latest
             rid: linux-x64
-            artifact_name: mbdc-linux-x64
+            artifact_name: mbdc-linux-amd64
+            linux_out_dir: out/linux-amd64
+            deb_arch: amd64
+            nfpm_config: packaging/nfpm.amd64.yaml
+            binary_name: mbdc
+          - os: ubuntu-latest
+            rid: linux-arm64
+            artifact_name: mbdc-linux-arm64
+            linux_out_dir: out/linux-arm64
+            deb_arch: arm64
+            nfpm_config: packaging/nfpm.arm64.yaml
             binary_name: mbdc
           - os: windows-latest
             rid: win-x64
             artifact_name: mbdc-windows-x64
+            linux_out_dir: ""
+            deb_arch: ""
+            nfpm_config: ""
             binary_name: mbdc.exe
           - os: macos-latest
             rid: osx-x64
             artifact_name: mbdc-macos-x64
+            linux_out_dir: ""
+            deb_arch: ""
+            nfpm_config: ""
             binary_name: mbdc
 
     steps:
@@ -158,6 +174,23 @@ jobs:
             --output ./publish/${{ matrix.rid }} \
             -p:PublishSingleFile=true
 
+      - name: Prepare Linux package input
+        if: matrix.deb_arch != ''
+        shell: bash
+        run: |
+          mkdir -p "${{ matrix.linux_out_dir }}"
+          cp "./publish/${{ matrix.rid }}/${{ matrix.binary_name }}" "${{ matrix.linux_out_dir }}/mbdc"
+          chmod +x "${{ matrix.linux_out_dir }}/mbdc"
+
+      - name: Build Debian package
+        if: matrix.deb_arch != ''
+        uses: goreleaser/nfpm-action@v1
+        with:
+          version: latest
+          args: package --packager deb --config ${{ matrix.nfpm_config }} --target ./deb/mbdc_${{ needs.release-please.outputs.version }}_${{ matrix.deb_arch }}.deb
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+
       - name: Create artifact bundle
         shell: bash
         run: |
@@ -171,6 +204,14 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}-bundle
           path: ./artifact-bundle/
+          retention-days: 7
+
+      - name: Upload deb package
+        if: matrix.deb_arch != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-deb
+          path: ./deb/*.deb
           retention-days: 7
 
   package-powershell-module:
@@ -218,13 +259,16 @@ jobs:
         run: |
           mkdir -p ./release-assets
 
-          tar -czf ./release-assets/mbdc-linux-x64.tar.gz -C ./downloaded-artifacts/mbdc-linux-x64-bundle .
+          tar -czf ./release-assets/mbdc-linux-amd64.tar.gz -C ./downloaded-artifacts/mbdc-linux-amd64-bundle .
+          tar -czf ./release-assets/mbdc-linux-arm64.tar.gz -C ./downloaded-artifacts/mbdc-linux-arm64-bundle .
           tar -czf ./release-assets/mbdc-macos-x64.tar.gz -C ./downloaded-artifacts/mbdc-macos-x64-bundle .
 
           pushd ./downloaded-artifacts/mbdc-windows-x64-bundle
           zip -r ../../release-assets/mbdc-windows-x64.zip .
           popd
 
+          cp ./downloaded-artifacts/mbdc-linux-amd64-deb/*.deb ./release-assets/
+          cp ./downloaded-artifacts/mbdc-linux-arm64-deb/*.deb ./release-assets/
           cp ./downloaded-artifacts/powershell-module-bundle/ModbusDirectConnect-PowerShell.zip ./release-assets/
 
       - name: Upload assets to GitHub release
@@ -232,10 +276,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          shopt -s nullglob
+          deb_files=(./release-assets/*.deb)
+          if [ ${#deb_files[@]} -eq 0 ]; then
+            echo "No deb artifacts found in ./release-assets"
+            exit 1
+          fi
+
           gh release upload "${{ needs.release-please.outputs.tag_name }}" \
             --repo "${GH_REPO}" \
-            ./release-assets/mbdc-linux-x64.tar.gz \
+            ./release-assets/mbdc-linux-amd64.tar.gz \
+            ./release-assets/mbdc-linux-arm64.tar.gz \
             ./release-assets/mbdc-windows-x64.zip \
             ./release-assets/mbdc-macos-x64.tar.gz \
+            "${deb_files[@]}" \
             ./release-assets/ModbusDirectConnect-PowerShell.zip \
             --clobber
