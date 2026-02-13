@@ -28,8 +28,7 @@ internal static class Program
         rootCommand.AddGlobalOption(globalOptions.SerialStopBits);
         rootCommand.AddGlobalOption(globalOptions.VerbosityLevel);
 
-        rootCommand.AddCommand(ReadCommands.CreateReadCommand(globalOptions));
-        rootCommand.AddCommand(WriteCommands.CreateWriteCommand(globalOptions));
+        FlatCommandMode.ConfigureRoot(rootCommand, globalOptions);
 
         var normalizedArgs = ArgumentNormalizer.Normalize(args);
         return await rootCommand.InvokeAsync(normalizedArgs);
@@ -45,7 +44,7 @@ internal static class Program
         var slaveIdOption = new Option<byte>(new[] { "--slave", "-s" }, () => 1, "Modbus slave/unit ID");
         var timeoutOption = new Option<int>(new[] { "--timeout", "-t" }, () => 5000, "Connection timeout in milliseconds");
 
-        var serialPortOption = new Option<string?>("--serial-port", "Serial device path or port name");
+        var serialPortOption = new Option<string?>(new[] { "--serial-port", "--serial" }, "Serial device path or port name");
         var serialBaudOption = new Option<int>("--baud", () => 9600, "Serial baud rate");
         var serialDataBitsOption = new Option<int>("--data-bits", () => 8, "Serial data bits");
         var serialParityOption = new Option<string>("--parity", () => "none", "Serial parity: none, even, odd");
