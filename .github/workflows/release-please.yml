@@ -1,0 +1,167 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish-cli:
+    name: Publish CLI (${{ matrix.rid }})
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact_name: mbdc-linux-x64
+            binary_name: mbdc
+          - os: windows-latest
+            rid: win-x64
+            artifact_name: mbdc-windows-x64
+            binary_name: mbdc.exe
+          - os: macos-latest
+            rid: osx-x64
+            artifact_name: mbdc-macos-x64
+            binary_name: mbdc
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+          source-url: https://nuget.pkg.github.com/effektor/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || secrets.GITHUB_TOKEN }}
+
+      - name: Restore dependencies
+        run: dotnet restore ModbusDirectConnect.CLI.sln
+
+      - name: Build
+        run: dotnet build ModbusDirectConnect.CLI.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test ModbusDirectConnect.CLI.sln --configuration Release --no-build --verbosity normal
+
+      - name: Publish framework-dependent single-file
+        shell: bash
+        run: |
+          dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained false \
+            --output ./publish/${{ matrix.rid }} \
+            -p:PublishSingleFile=true
+
+      - name: Create artifact bundle
+        shell: bash
+        run: |
+          mkdir -p ./artifact-bundle
+          cp "./publish/${{ matrix.rid }}/${{ matrix.binary_name }}" ./artifact-bundle/
+          cp ./LICENSE ./artifact-bundle/
+          cp ./README.md ./artifact-bundle/
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-bundle
+          path: ./artifact-bundle/
+          retention-days: 7
+
+  package-powershell-module:
+    name: Package PowerShell Module
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create PowerShell module package
+        run: |
+          mkdir -p ./release-assets/ModbusDirectConnect
+          cp -r ./PowerShell/* ./release-assets/ModbusDirectConnect/
+          cp ./LICENSE ./release-assets/ModbusDirectConnect/
+          cp ./README.md ./release-assets/ModbusDirectConnect/
+          cd ./release-assets
+          zip -r ../ModbusDirectConnect-PowerShell.zip ModbusDirectConnect
+
+      - name: Upload PowerShell bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: powershell-module-bundle
+          path: ./ModbusDirectConnect-PowerShell.zip
+          retention-days: 7
+
+  upload-release-assets:
+    name: Upload Release Assets
+    needs: [release-please, publish-cli, package-powershell-module]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: ./downloaded-artifacts
+
+      - name: Create archives
+        shell: bash
+        run: |
+          mkdir -p ./release-assets
+
+          tar -czf ./release-assets/mbdc-linux-x64.tar.gz -C ./downloaded-artifacts/mbdc-linux-x64-bundle .
+          tar -czf ./release-assets/mbdc-macos-x64.tar.gz -C ./downloaded-artifacts/mbdc-macos-x64-bundle .
+
+          pushd ./downloaded-artifacts/mbdc-windows-x64-bundle
+          zip -r ../../release-assets/mbdc-windows-x64.zip .
+          popd
+
+          cp ./downloaded-artifacts/powershell-module-bundle/ModbusDirectConnect-PowerShell.zip ./release-assets/
+
+      - name: Upload assets to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" \
+            ./release-assets/mbdc-linux-x64.tar.gz \
+            ./release-assets/mbdc-windows-x64.zip \
+            ./release-assets/mbdc-macos-x64.tar.gz \
+            ./release-assets/ModbusDirectConnect-PowerShell.zip \
+            --clobber

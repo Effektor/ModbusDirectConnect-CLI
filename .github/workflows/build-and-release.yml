@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Test
 
 on:
   push:
@@ -22,16 +22,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            rid: linux-x64
-            artifact_name: mbdc-linux-x64
-          - os: windows-latest
-            rid: win-x64
-            artifact_name: mbdc-windows-x64
-          - os: macos-latest
-            rid: osx-x64
-            artifact_name: mbdc-macos-x64
 
     steps:
     - name: Checkout code
@@ -53,62 +43,3 @@ jobs:
 
     - name: Test
       run: dotnet test ModbusDirectConnect.CLI.sln --configuration Release --no-build --verbosity normal
-
-    - name: Publish framework-dependent single-file
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      shell: bash
-      run: |
-        dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
-          --configuration Release \
-          --runtime ${{ matrix.rid }} \
-          --self-contained false \
-          --output ./publish/${{ matrix.rid }} \
-          -p:PublishSingleFile=true
-
-    - name: Create artifact directory
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      shell: bash
-      run: |
-        mkdir -p ./artifacts
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp ./publish/${{ matrix.rid }}/mbdc.exe ./artifacts/
-          cp ./LICENSE ./artifacts/
-          cp ./README.md ./artifacts/
-        else
-          cp ./publish/${{ matrix.rid }}/mbdc ./artifacts/
-          chmod +x ./artifacts/mbdc
-          cp ./LICENSE ./artifacts/
-          cp ./README.md ./artifacts/
-        fi
-
-    - name: Upload build artifacts
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.artifact_name }}
-        path: ./artifacts/
-        retention-days: 30
-
-  build-powershell-module:
-    name: Build PowerShell Module
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Create PowerShell module package
-      run: |
-        mkdir -p ./ps-module-artifacts/ModbusDirectConnect
-        cp -r ./PowerShell/* ./ps-module-artifacts/ModbusDirectConnect/
-        cp ./LICENSE ./ps-module-artifacts/ModbusDirectConnect/
-        cp ./README.md ./ps-module-artifacts/ModbusDirectConnect/
-
-    - name: Upload PowerShell module artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: powershell-module
-        path: ./ps-module-artifacts/
-        retention-days: 30

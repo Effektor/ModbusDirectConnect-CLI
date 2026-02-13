@@ -1,29 +1,26 @@
 # mbdc Implementation Plan
 
+## Source Of Truth
+- `HELP.md` defines required CLI syntax, help output, and behavior.
+- `docs/FLAG_MILESTONES.md` tracks status of each long flag from `HELP.md`.
+
 ## Goals
 - Ship a cross-platform Modbus CLI named `mbdc`.
-- Keep invocation fast for field use with flat option-based syntax.
-- Support TCP and RTU-over-TCP now, serial when library API supports it.
-- Maintain CI quality gates and distribution readiness.
+- Keep release throughput high while features are still being built.
+- Enforce argument-level quality through broad parser tests.
+- Manage versions/releases through `release-please`.
+- Keep PowerShell cmdlets on PowerShell conventions as a separate UX surface.
 
-## Current State
-- CLI syntax is flag-based per `Commands.md` (no subcommand compatibility path).
-- Implemented operations:
-  - Reads: coil, discrete, holding, input register
-  - Writes: single/multi coil, single/multi register (where supported by library API)
-- Transport inference supports positional target and `--serial`/`--rtu` controls.
-- Package API constraint remains for direct serial runtime support in `ModbusDirectConnect` `1.1.1` (`net8.0`).
+## CI/CD Model
+- `.github/workflows/build-and-release.yml`: build + test only (PRs/pushes).
+- `.github/workflows/release-please.yml`: release PR/versioning and release asset publishing.
 
-## Phase 1 (Done)
-- Flat parser and operation routing
-- Endpoint/transport inference
-- Verbosity handling
-- Real client adapter for supported transports
-- Unit test scaffolding + CI build/test flow
+## Delivery Principle
+- Features may remain `Planned`/`Partial` without blocking releases.
+- Every flag in `HELP.md` must be represented in `docs/FLAG_MILESTONES.md`.
+- Unit tests focus heavily on valid CLI argument combinations and parser stability.
 
-## Phase 2 (Next)
-- Add serial runtime path when public serial channel API is available
-- Add integration tests against simulated Modbus endpoints
-
-## Phase 3
-- Finalize package/distribution automation for Chocolatey, WinGet, apt, and PowerShell module workflows
+## Near-Term Work
+1. Implement remaining decode families (`u32/s32/f32/f64`, swaps, scan/group).
+2. Implement serial runtime path when public library API supports it.
+3. Expand integration tests against Modbus simulators for TCP and RTU-over-TCP.

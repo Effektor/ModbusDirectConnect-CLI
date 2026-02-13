@@ -11,6 +11,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../HELP.md" Link="HELP.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>ModbusDirectConnect.CLI.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
     <PackageReference Include="ModbusDirectConnect" Version="1.1.1" />
   </ItemGroup>
