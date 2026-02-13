@@ -9,7 +9,7 @@ description: "ModBusDirectConnect CLI"
 license: MIT
 
 contents:
-  - src: out/linux-arm64/mbdc
+  - src: out/linux-amd64/mbdc
     dst: /usr/bin/mbdc
     file_info:
       mode: 0755
