@@ -49,3 +49,4 @@ mbdc 192.168.1.1 --write-reg 2 --data 0x1234
 - Versioning and release PRs are managed by `release-please`.
 - Build/test runs are handled in `.github/workflows/build-and-release.yml`.
 - Release publishing (GitHub release assets for CLI + PowerShell module) is handled in `.github/workflows/release-please.yml`.
+- If your repo/org blocks PR creation with `GITHUB_TOKEN`, set `RELEASE_PLEASE_TOKEN` (PAT) as a repo secret for `release-please`.
