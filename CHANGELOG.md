@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.0.1...v2.1.0) (2026-02-13)
+
+
+### Features
+
+* **ci:** add amd64/arm64 binary and deb release artifacts ([04decca](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/04deccab97d72fc2a38ecafcc80af4d9faa2622f))
+* **ci:** publish amd64/arm64 binaries and deb packages ([d7e72bf](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/d7e72bf8f508ade52d4a4d1e01c3d2d26920a0c8))
+
 ## [2.0.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.0.0...v2.0.1) (2026-02-13)
 
 
