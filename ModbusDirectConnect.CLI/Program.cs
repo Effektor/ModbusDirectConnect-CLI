@@ -32,7 +32,7 @@ internal static class Program
     {
         var rootCommand = new RootCommand("mbdc - Modbus debug client (TCP / RTU / ASCII) with decoding and monitoring")
         {
-            Description = "Use --help to show full technical help from HELP.md."
+            Description = "Use --help to show runtime help from help.txt."
         };
         var globalOptions = CreateGlobalOptions();
 

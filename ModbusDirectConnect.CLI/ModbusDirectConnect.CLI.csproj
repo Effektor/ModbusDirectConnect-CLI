@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="../HELP.md" Link="HELP.md" />
+    <EmbeddedResource Include="../help.txt" Link="help.txt" />
   </ItemGroup>
 
   <ItemGroup>

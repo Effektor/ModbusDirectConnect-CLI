@@ -1,0 +1,116 @@
+mbdc - Modbus debug client (current implementation)
+
+USAGE:
+  mbdc [TARGET] [TRANSPORT OPTIONS] [OPERATION] [DATA/OUTPUT OPTIONS]
+
+TARGET:
+  TARGET may be one of:
+    host                 Modbus/TCP (default port 502)
+    host:port            Modbus/TCP on custom port
+    /dev/ttyXXX          Serial-like target (parsed; runtime not yet available)
+    COMX                 Serial-like target on Windows (parsed; runtime not yet available)
+
+  If TARGET is omitted, --serial (or --serial-port) may be provided.
+
+OPERATION (exactly one required):
+  Reads:
+    -rc, --read-coil SPEC
+    -rd, --read-discrete SPEC
+    -rh, --read-holding SPEC
+    -ri, --read-inputreg SPEC
+        --ref SPEC
+
+  Writes:
+    -wr, --write-reg ADDR              Implemented
+    -wmr, --write-multi-reg ADDR       Implemented
+    -wc, --write-coil ADDR             Parsed, but runtime write is not available in current library
+    -wmc, --write-multi-coil ADDR      Parsed, but runtime write is not available in current library
+
+SPEC / ADDR / COUNT:
+  SPEC format:
+    ADDR
+    ADDR:COUNT
+
+  -c, --count N                         Default read count is 1 (ignored if SPEC has :COUNT)
+
+  --ref maps Modicon references:
+    1..9999       -> coils (FC01), addr = ref - 1
+    10001..19999  -> discrete inputs (FC02), addr = ref - 10001
+    30001..39999  -> input registers (FC04), addr = ref - 30001
+    40001..49999  -> holding registers (FC03), addr = ref - 40001
+
+TRANSPORT OPTIONS:
+  TCP (default):
+    --tcp
+    -p, --port PORT                      Default 502
+    --timeout SEC                        Default 1.0
+
+  RTU-over-TCP:
+    --rtu                                Uses RTU framing over TCP for host targets
+
+  Serial (milestone state):
+    --serial DEV
+    --serial-port DEV
+    --baud RATE
+    --parity {N,E,O}
+    --databits {7,8}
+    --stopbits {1,2}
+    --ascii                              Currently not implemented (returns error)
+
+  Also accepted:
+    -u, --unit, --slave ID               Default 1
+    --protocol {tcp|rtu-tcp|rtu-serial}
+    --host HOST
+    --retries N                          Parsed milestone flag; runtime retry logic not implemented yet
+
+WRITE DATA FLAGS:
+  -d, --data X
+  --value X                              Alias for --data
+  --on / --off                           Convenience for --write-coil
+  --raw16 X                              Raw 16-bit helper
+
+  Multi-coil payload input:
+    --bits BITSTRING_OR_CSV
+    --bytes HEXBYTE_LIST
+
+READ OUTPUT / DECODE (implemented now):
+  Coil/discrete read formatting:
+    --bool                               true/false output (default)
+    --bits                               bitstring output
+    --hex                                packed hex bytes output
+
+  Register read formatting:
+    --bytes                              raw register bytes as hex
+    --string                             decode register bytes as text
+    --string-len N
+    --null-term
+    --encoding ENC                       default utf-8
+
+  General output:
+    -q, --quiet
+    --json                               basic JSON output for reads
+    --timestamp
+
+  Continuous reads:
+    --watch [SEC]                        append mode
+    --monitor [SEC]                      clear/redraw mode
+    --diff                               mark changed lines in loops
+    --only-changed                       print only changed lines in loops
+
+VERBOSITY:
+  -v
+  -vv
+  -vvv
+
+MILESTONE FLAGS (accepted but not implemented in runtime decode/format logic):
+  --u16 --s16 --u32 --s32 --f32 --f64
+  --be --le --little-endian --ws --word-swap --bs --byte-swap
+  --group --scan --no-color --raw-bytes
+
+COMMON:
+  -h, --help
+  --version
+
+NOTES:
+  - Only one operation flag can be used per command invocation.
+  - RTU serial transport support is blocked by current ModbusDirectConnect public API.

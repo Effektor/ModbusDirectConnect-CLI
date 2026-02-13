@@ -4,6 +4,7 @@
 
 This file is kept as a lightweight index:
 - Full help specification: `HELP.md`
+- Runtime help text used by `mbdc --help`: `help.txt`
 - Flag implementation tracking: `docs/FLAG_MILESTONES.md`
 - Delivery roadmap: `docs/IMPLEMENTATION_PLAN.md`
 

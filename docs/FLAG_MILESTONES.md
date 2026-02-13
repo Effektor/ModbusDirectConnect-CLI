@@ -25,7 +25,7 @@ Status values:
 | `--f32` | Planned | Parsing milestone only. |
 | `--f64` | Planned | Parsing milestone only. |
 | `--group` | Planned | Parsing milestone only. |
-| `--help` | Implemented | Prints technical help text from `HELP.md` resource. |
+| `--help` | Implemented | Prints runtime help text from embedded `help.txt` resource. |
 | `--hex` | Implemented | Hex output for packed bit reads. |
 | `--json` | Partial | Basic JSON payload output for reads. |
 | `--le` | Planned | Parsing milestone only. |

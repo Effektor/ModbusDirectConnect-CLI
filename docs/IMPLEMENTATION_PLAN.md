@@ -1,7 +1,8 @@
 # mbdc Implementation Plan
 
 ## Source Of Truth
-- `HELP.md` defines required CLI syntax, help output, and behavior.
+- `HELP.md` defines required CLI syntax and target behavior.
+- `help.txt` defines current runtime `--help` output (implementation snapshot).
 - `docs/FLAG_MILESTONES.md` tracks status of each long flag from `HELP.md`.
 
 ## Goals

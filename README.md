@@ -40,6 +40,7 @@ mbdc 192.168.1.1 --write-reg 2 --data 0x1234
 
 ## Documentation
 - CLI technical specification: `HELP.md`
+- Runtime `--help` text source: `help.txt`
 - Flag milestone tracker: `docs/FLAG_MILESTONES.md`
 - CLI syntax: `docs/CLI_SYNTAX.md`
 - Implementation plan: `docs/IMPLEMENTATION_PLAN.md`
