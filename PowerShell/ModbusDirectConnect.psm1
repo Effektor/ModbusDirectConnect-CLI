@@ -19,8 +19,8 @@ function Get-ModbusCliPath {
     # Try to find in module directory
     $moduleDir = Split-Path -Parent $PSScriptRoot
     $possiblePaths = @(
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net8.0\mbdc.exe"),
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net8.0\mbdc.exe"),
+        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net10.0\mbdc.exe"),
+        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net10.0\mbdc.exe"),
         (Join-Path $moduleDir "mbdc.exe"),
         (Join-Path $moduleDir "mbdc")
     )

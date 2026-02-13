@@ -8,7 +8,7 @@ Cross-platform CLI wrapper around the `ModbusDirectConnect` NuGet package.
 ## Status
 - Implemented: flat flag-based CLI syntax from `HELP.md`
 - Implemented: Modbus TCP and Modbus RTU-over-TCP operations
-- Pending: direct RTU-over-serial runtime support (blocked by current public API surface in `ModbusDirectConnect` `1.1.1` for `net8.0`)
+- Pending: direct RTU-over-serial runtime support (blocked by current public API surface in `ModbusDirectConnect` `1.1.1`)
 - Implemented: PowerShell cmdlets remain PowerShell-native and intentionally separate from shell CLI syntax.
 
 ## Build
