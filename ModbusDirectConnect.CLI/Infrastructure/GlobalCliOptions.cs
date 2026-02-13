@@ -8,7 +8,8 @@ public sealed class GlobalCliOptions
     public required Option<string?> Host { get; init; }
     public required Option<int> Port { get; init; }
     public required Option<byte> SlaveId { get; init; }
-    public required Option<int> Timeout { get; init; }
+    public required Option<double> TimeoutSeconds { get; init; }
+    public required Option<int> Retries { get; init; }
     public required Option<string?> Protocol { get; init; }
     public required Option<string?> SerialPort { get; init; }
     public required Option<int> SerialBaud { get; init; }

@@ -19,8 +19,8 @@ function Get-ModbusCliPath {
     # Try to find in module directory
     $moduleDir = Split-Path -Parent $PSScriptRoot
     $possiblePaths = @(
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net8.0\mbdc.exe"),
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net8.0\mbdc.exe"),
+        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net10.0\mbdc.exe"),
+        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net10.0\mbdc.exe"),
         (Join-Path $moduleDir "mbdc.exe"),
         (Join-Path $moduleDir "mbdc")
     )
@@ -88,6 +88,18 @@ function Get-ProtocolArgs {
     return @()
 }
 
+function Convert-TimeoutMsToSeconds {
+    param(
+        [int]$Milliseconds
+    )
+
+    if ($Milliseconds -lt 0) {
+        throw "Timeout must be zero or greater."
+    }
+
+    return ([double]$Milliseconds / 1000).ToString("0.###", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Get-ModbusCoil {
     <#
     .SYNOPSIS
@@ -129,7 +141,7 @@ function Get-ModbusCoil {
         "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -176,7 +188,7 @@ function Get-ModbusDiscreteInput {
         "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -223,7 +235,7 @@ function Get-ModbusHoldingRegister {
         "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -270,7 +282,7 @@ function Get-ModbusInputRegister {
         "--count", $Count,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -318,7 +330,7 @@ function Set-ModbusCoil {
         "--data", $dataValue,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -365,7 +377,7 @@ function Set-ModbusRegister {
         "--data", $Value,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -414,7 +426,7 @@ function Set-ModbusCoils {
         "--data", $valuesStr,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args
@@ -463,7 +475,7 @@ function Set-ModbusRegisters {
         "--data", $valuesStr,
         "--port", $Port,
         "--slave", $SlaveId,
-        "--timeout", $Timeout
+        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
     ) + (Get-ProtocolArgs -Protocol $Protocol)
     
     Invoke-ModbusCli -Arguments $args

@@ -13,27 +13,10 @@ public static class ArgumentNormalizer
 
     public static string[] Normalize(string[] args)
     {
-        var normalized = new List<string>();
-
-        if (args.Length > 0 && IsImplicitTargetToken(args[0]))
-        {
-            normalized.Add("--target");
-            normalized.Add(args[0]);
-
-            for (var i = 1; i < args.Length; i++)
-            {
-                normalized.Add(args[i]);
-            }
-        }
-        else
-        {
-            normalized.AddRange(args);
-        }
-
         var verbosityCount = 0;
         var withoutVerboseShorthand = new List<string>();
 
-        foreach (var token in normalized)
+        foreach (var token in args)
         {
             if (VerboseTokenPattern.IsMatch(token))
             {
@@ -44,13 +27,29 @@ public static class ArgumentNormalizer
             withoutVerboseShorthand.Add(token);
         }
 
-        if (verbosityCount > 0)
+        var normalized = new List<string>();
+
+        if (withoutVerboseShorthand.Count > 0 && IsImplicitTargetToken(withoutVerboseShorthand[0]))
         {
-            withoutVerboseShorthand.Add("--verbosity-level");
-            withoutVerboseShorthand.Add(Math.Min(verbosityCount, 3).ToString());
+            normalized.Add("--target");
+            normalized.Add(withoutVerboseShorthand[0]);
+            for (var i = 1; i < withoutVerboseShorthand.Count; i++)
+            {
+                normalized.Add(withoutVerboseShorthand[i]);
+            }
+        }
+        else
+        {
+            normalized.AddRange(withoutVerboseShorthand);
         }
 
-        return withoutVerboseShorthand.ToArray();
+        if (verbosityCount > 0)
+        {
+            normalized.Add("--verbosity-level");
+            normalized.Add(Math.Min(verbosityCount, 3).ToString());
+        }
+
+        return normalized.ToArray();
     }
 
     private static bool IsImplicitTargetToken(string token)

@@ -20,7 +20,7 @@ public sealed class ModbusDirektClient : IModbusClient
         {
             TransportKind.Tcp => CreateTcpChannel(connection),
             TransportKind.RtuTcp => new RtuTCPChannel(connection.Host!, connection.Port, connection.SlaveId),
-            TransportKind.RtuSerial => throw new NotSupportedException("RTU serial transport is not currently available in ModbusDirectConnect 1.1.1 (no public serial channel API in the net8.0 package)."),
+            TransportKind.RtuSerial => throw new NotSupportedException("RTU serial transport is not currently available in ModbusDirectConnect 1.1.1 (no public serial channel API)."),
             _ => throw new ArgumentOutOfRangeException(nameof(connection.Transport), connection.Transport, "Unsupported transport")
         };
 
