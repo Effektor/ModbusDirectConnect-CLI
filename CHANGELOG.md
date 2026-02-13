@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.0.0...v2.0.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* **ci:** pass repo context to gh release upload ([13f66ff](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/13f66ff34fb6dabbe3bb0b41f7755334a25f9013))
+* **ci:** provide repository context for release asset upload ([82917be](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/82917be4fcea5443425944feac1e73aae7b2e002))
+
 ## [2.0.0](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v1.0.0...v2.0.0) (2026-02-13)
 
 
