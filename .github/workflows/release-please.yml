@@ -158,12 +158,6 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore ModbusDirectConnect.CLI.sln
 
-      - name: Build
-        run: dotnet build ModbusDirectConnect.CLI.sln --configuration Release --no-restore
-
-      - name: Test
-        run: dotnet test ModbusDirectConnect.CLI.sln --configuration Release --no-build --verbosity normal
-
       - name: Publish framework-dependent single-file
         shell: bash
         run: |
@@ -184,12 +178,28 @@ jobs:
 
       - name: Build Debian package
         if: matrix.deb_arch != ''
-        uses: goreleaser/nfpm-action@v1
+        uses: actions/setup-go@v5
         with:
-          version: latest
-          args: package --packager deb --config ${{ matrix.nfpm_config }} --target ./deb/mbdc_${{ needs.release-please.outputs.version }}_${{ matrix.deb_arch }}.deb
+          go-version: stable
+
+      - name: Install nfpm
+        if: matrix.deb_arch != ''
+        shell: bash
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Pack Debian package
+        if: matrix.deb_arch != ''
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
+        shell: bash
+        run: |
+          mkdir -p ./deb
+          nfpm pkg \
+            --packager deb \
+            --config "${{ matrix.nfpm_config }}" \
+            --target "./deb/mbdc_${VERSION}_${{ matrix.deb_arch }}.deb"
 
       - name: Create artifact bundle
         shell: bash
