@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.1.0...v2.1.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* **ci:** dedupe build/test triggers and fix deb packaging ([1f714b9](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/1f714b92bc00fa99e377a754f70482267afeed35))
+* **ci:** remove duplicate build triggers and replace nfpm action ([34fe131](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/34fe13157f91fd739d3ac8b2a526feee4981e264))
+
 ## [2.1.0](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.0.1...v2.1.0) (2026-02-13)
 
 
