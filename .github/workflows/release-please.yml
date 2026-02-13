@@ -230,8 +230,10 @@ jobs:
       - name: Upload assets to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag_name }}" \
+            --repo "${GH_REPO}" \
             ./release-assets/mbdc-linux-x64.tar.gz \
             ./release-assets/mbdc-windows-x64.zip \
             ./release-assets/mbdc-macos-x64.tar.gz \
