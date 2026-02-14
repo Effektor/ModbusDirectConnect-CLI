@@ -333,6 +333,7 @@ public static class FlatCommandMode
             Port: context.ParseResult.GetValueForOption(global.Port),
             SlaveId: context.ParseResult.GetValueForOption(global.SlaveId),
             Timeout: timeoutMilliseconds,
+            Retries: context.ParseResult.GetValueForOption(global.Retries),
             Protocol: protocol,
             SerialPort: explicitSerial,
             SerialBaud: context.ParseResult.GetValueForOption(global.SerialBaud),

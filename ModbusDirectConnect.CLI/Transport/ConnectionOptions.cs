@@ -6,6 +6,7 @@ public sealed record ConnectionOptions(
     int Port,
     byte SlaveId,
     int Timeout,
+    int Retries,
     string? Protocol,
     string? SerialPort,
     int SerialBaud,

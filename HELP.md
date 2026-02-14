@@ -58,7 +58,7 @@ TRANSPORT OPTIONS:
   Serial (RTU / ASCII):
     --serial DEV        Serial device (e.g. COM5 on Windows; /dev/ttyUSB0 on Linux)
                         If TARGET is a /dev/tty... path, it is used as the serial device.
-    --ascii             Use Modbus ASCII (default is RTU)
+    --ascii             Not implemented yet (reserved; default is RTU)
     --baud RATE         Baud rate (default: 19200)
     --parity {N,E,O}    Parity (default: N)
     --databits {7,8}    Data bits (default: 8)
