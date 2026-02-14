@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.0...v2.2.1) (2026-02-14)
+
+
+### Bug Fixes
+
+* **linux:** ship System.IO.Ports native lib ([6914c21](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/6914c21207398e4841f84edd3a95d8afa7554cc8))
+* **linux:** ship System.IO.Ports native lib ([027cd13](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/027cd130d4d8ad1d71199acd397f7017deb645eb))
+
 ## [2.2.0](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.1.1...v2.2.0) (2026-02-14)
 
 
