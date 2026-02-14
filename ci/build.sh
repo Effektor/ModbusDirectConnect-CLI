@@ -14,9 +14,4 @@ dotnet publish -c Release -r "$RID" \
   -o "$OUTDIR"
 
 # rename to stable name for packaging
-# replace "YourProject" with your actual output filename if needed
-if [ -f "$OUTDIR/mbdc" ]; then
-  mv "$OUTDIR/mbdc" "$OUTDIR/mbdc"
-fi
-
 chmod +x "$OUTDIR/mbdc"

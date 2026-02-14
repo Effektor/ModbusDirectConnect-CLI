@@ -13,3 +13,7 @@ contents:
     dst: /usr/bin/mbdc
     file_info:
       mode: 0755
+  - src: out/linux-arm64/libSystem.IO.Ports.Native.so
+    dst: /usr/bin/libSystem.IO.Ports.Native.so
+    file_info:
+      mode: 0755
