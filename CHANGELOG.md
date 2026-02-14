@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.2.0](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.1.1...v2.2.0) (2026-02-14)
+
+
+### Features
+
+* **serial:** implement RTU over serial ([8421646](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/8421646353398bf17904bf4d67847a957fdd8092))
+* **serial:** implement RTU over serial ([f6f47ac](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/f6f47ac27058215b46dfe69a051a5827976281b8))
+
+
+### Bug Fixes
+
+* **ci:** skip build-and-test workflow on main pushes ([a7b1563](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/a7b1563421ac2f8eea6f173b74ed75c2750e16c7))
+
 ## [2.1.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.1.0...v2.1.1) (2026-02-13)
 
 
