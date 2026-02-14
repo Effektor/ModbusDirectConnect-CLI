@@ -10,7 +10,7 @@ Status values:
 | Flag | Status | Notes |
 | --- | --- | --- |
 | `--ascii` | Planned | Reserved; runtime currently returns not implemented. |
-| `--baud` | Partial | Parsed and stored in connection options; blocked by serial transport support in library. |
+| `--baud` | Implemented | Applied to serial RTU channel configuration. |
 | `--be` | Planned | Parsing milestone only. |
 | `--bits` | Partial | Implemented for bit output and multi-coil payload parsing; advanced behavior still pending. |
 | `--bool` | Implemented | Coil/discrete true/false output mode. |
@@ -19,7 +19,7 @@ Status values:
 | `--bytes` | Partial | Implemented for register byte output; write-byte packing is basic. |
 | `--count` | Implemented | Read count supported; overridden by `SPEC` suffix count. |
 | `--data` | Implemented | Core write payload input. |
-| `--databits` | Partial | Parsed and stored; serial runtime pending. |
+| `--databits` | Implemented | Applied to serial RTU channel configuration. |
 | `--diff` | Partial | Basic changed-line highlighting in watch/monitor loop. |
 | `--encoding` | Implemented | String decode encoding selector. |
 | `--f32` | Planned | Parsing milestone only. |
@@ -36,7 +36,7 @@ Status values:
 | `--off` | Implemented | Convenience single-coil write OFF. |
 | `--on` | Implemented | Convenience single-coil write ON. |
 | `--only-changed` | Partial | Filters watch/monitor output to changed lines. |
-| `--parity` | Partial | Parsed and stored; serial runtime pending. |
+| `--parity` | Implemented | Applied to serial RTU channel configuration. |
 | `--port` | Implemented | TCP port selection. |
 | `--quiet` | Implemented | Minimal line output mode. |
 | `--raw-bytes` | Planned | Parsing milestone only. |
@@ -46,13 +46,13 @@ Status values:
 | `--read-holding` | Implemented | FC03 read operation. |
 | `--read-inputreg` | Implemented | FC04 read operation. |
 | `--ref` | Implemented | Modicon ref addressing translation to FC/address. |
-| `--retries` | Planned | Parsing milestone only. |
-| `--rtu` | Partial | RTU-over-TCP supported; RTU-serial blocked by library API. |
+| `--retries` | Implemented | Mapped to library Modbus client retry count. |
+| `--rtu` | Partial | RTU-over-TCP supported; also infers serial RTU when target is serial-like. |
 | `--s16` | Planned | Parsing milestone only. |
 | `--s32` | Planned | Parsing milestone only. |
 | `--scan` | Planned | Parsing milestone only. |
-| `--serial` | Partial | Inference and parsing implemented; runtime blocked by serial API availability. |
-| `--stopbits` | Partial | Parsed and stored; serial runtime pending. |
+| `--serial` | Implemented | Serial RTU transport implemented via library serial channel. |
+| `--stopbits` | Implemented | Applied to serial RTU channel configuration. |
 | `--string` | Implemented | Register-byte string decoding mode. |
 | `--string-len` | Implemented | String byte-length limiter. |
 | `--tcp` | Implemented | Force Modbus/TCP transport selection. |

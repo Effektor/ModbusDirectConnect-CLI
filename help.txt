@@ -7,8 +7,8 @@ TARGET:
   TARGET may be one of:
     host                 Modbus/TCP (default port 502)
     host:port            Modbus/TCP on custom port
-    /dev/ttyXXX          Serial-like target (parsed; runtime not yet available)
-    COMX                 Serial-like target on Windows (parsed; runtime not yet available)
+    /dev/ttyXXX          Serial device on Linux (RTU)
+    COMX                 Serial port on Windows (RTU)
 
   If TARGET is omitted, --serial (or --serial-port) may be provided.
 
@@ -48,20 +48,20 @@ TRANSPORT OPTIONS:
   RTU-over-TCP:
     --rtu                                Uses RTU framing over TCP for host targets
 
-  Serial (milestone state):
+  Serial (RTU):
     --serial DEV
     --serial-port DEV
     --baud RATE
     --parity {N,E,O}
     --databits {7,8}
     --stopbits {1,2}
-    --ascii                              Currently not implemented (returns error)
+    --ascii                              Not implemented yet (returns error)
 
   Also accepted:
     -u, --unit, --slave ID               Default 1
     --protocol {tcp|rtu-tcp|rtu-serial}
     --host HOST
-    --retries N                          Parsed milestone flag; runtime retry logic not implemented yet
+    --retries N                          Implemented (maps to Modbus client retry count)
 
 WRITE DATA FLAGS:
   -d, --data X
@@ -113,4 +113,4 @@ COMMON:
 
 NOTES:
   - Only one operation flag can be used per command invocation.
-  - RTU serial transport support is blocked by current ModbusDirectConnect public API.
+  - Coil write operations are parsed, but are not available due to library public API limitations.

@@ -17,6 +17,7 @@ public static class ModbusClientFactory
             Port: port,
             SlaveId: slaveId,
             Timeout: timeout,
+            Retries: 0,
             Protocol: protocol,
             SerialPort: null,
             SerialBaud: 9600,

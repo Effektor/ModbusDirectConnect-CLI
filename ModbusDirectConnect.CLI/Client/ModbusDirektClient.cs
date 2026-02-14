@@ -1,7 +1,9 @@
 using ModbusDirekt;
 using ModbusDirekt.Modbus.Channel;
+using ModbusDirekt.Modbus.Channel.Serial;
 using ModbusDirekt.Modbus.Channel.TCP;
 using ModbusDirectConnect.CLI.Transport;
+using System.IO.Ports;
 
 namespace ModbusDirectConnect.CLI.Client;
 
@@ -20,11 +22,16 @@ public sealed class ModbusDirektClient : IModbusClient
         {
             TransportKind.Tcp => CreateTcpChannel(connection),
             TransportKind.RtuTcp => new RtuTCPChannel(connection.Host!, connection.Port, connection.SlaveId),
-            TransportKind.RtuSerial => throw new NotSupportedException("RTU serial transport is not currently available in ModbusDirectConnect 1.1.1 (no public serial channel API)."),
+            TransportKind.RtuSerial => CreateSerialChannel(connection),
             _ => throw new ArgumentOutOfRangeException(nameof(connection.Transport), connection.Transport, "Unsupported transport")
         };
 
-        return new ModbusDirektClient(new ModbusClient(channel));
+        var client = new ModbusClient(channel)
+        {
+            NumberOfRetries = Math.Max(0, connection.Retries)
+        };
+
+        return new ModbusDirektClient(client);
     }
 
     public Task<bool[]> ReadCoilsAsync(ushort startAddress, ushort count)
@@ -88,7 +95,7 @@ public sealed class ModbusDirektClient : IModbusClient
 
     public Task WriteSingleCoilAsync(ushort address, bool value)
     {
-        throw new NotSupportedException("Writing coils is not exposed by ModbusDirectConnect 1.1.1 public API.");
+        throw new NotSupportedException("Writing coils is not exposed by the ModbusDirectConnect public API.");
     }
 
     public Task WriteSingleRegisterAsync(ushort address, ushort value)
@@ -99,7 +106,7 @@ public sealed class ModbusDirektClient : IModbusClient
 
     public Task WriteMultipleCoilsAsync(ushort startAddress, bool[] values)
     {
-        throw new NotSupportedException("Writing multiple coils is not exposed by ModbusDirectConnect 1.1.1 public API.");
+        throw new NotSupportedException("Writing multiple coils is not exposed by the ModbusDirectConnect public API.");
     }
 
     public Task WriteMultipleRegistersAsync(ushort startAddress, ushort[] values)
@@ -124,5 +131,76 @@ public sealed class ModbusDirektClient : IModbusClient
         {
             ConnectionTimeout = connection.Timeout
         };
+    }
+
+    private static ModbusSerialChannel CreateSerialChannel(ResolvedConnection connection)
+    {
+        if (string.IsNullOrWhiteSpace(connection.SerialPort))
+        {
+            throw new ArgumentException("Serial transport requires a serial port path or port name.");
+        }
+
+        if (connection.SerialBaud <= 0)
+        {
+            throw new ArgumentException($"Invalid --baud '{connection.SerialBaud}'. Baud rate must be a positive integer.");
+        }
+
+        if (connection.SerialDataBits is not (7 or 8))
+        {
+            throw new ArgumentException($"Invalid --databits '{connection.SerialDataBits}'. Supported values: 7, 8");
+        }
+
+        return new ModbusSerialChannel(
+            portName: connection.SerialPort,
+            unitIdentifier: connection.SlaveId,
+            baudRate: connection.SerialBaud,
+            parity: ParseParity(connection.SerialParity),
+            dataBits: connection.SerialDataBits,
+            stopBits: ParseStopBits(connection.SerialStopBits),
+            readTimeout: connection.Timeout,
+            writeTimeout: connection.Timeout,
+            handshake: Handshake.None,
+            portFlavor: ResolvePortFlavor(connection.SerialPort));
+    }
+
+    private static Parity ParseParity(string value)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "n" or "none" => Parity.None,
+            "e" or "even" => Parity.Even,
+            "o" or "odd" => Parity.Odd,
+            _ => throw new ArgumentException($"Invalid --parity '{value}'. Supported values: N, E, O")
+        };
+    }
+
+    private static StopBits ParseStopBits(string value)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "1" or "one" => StopBits.One,
+            "2" or "two" => StopBits.Two,
+            _ => throw new ArgumentException($"Invalid --stopbits '{value}'. Supported values: 1, 2")
+        };
+    }
+
+    private static SerialPortFlavor ResolvePortFlavor(string portName)
+    {
+        if (portName.StartsWith("/dev/", StringComparison.OrdinalIgnoreCase))
+        {
+            return SerialPortFlavor.LinuxDevice;
+        }
+
+        if (portName.StartsWith(@"\\.\COM", StringComparison.OrdinalIgnoreCase) ||
+            (portName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) &&
+             portName.Length > 3 &&
+             portName[3..].All(char.IsDigit)))
+        {
+            return SerialPortFlavor.WindowsCom;
+        }
+
+        return SerialPortFlavor.Auto;
     }
 }

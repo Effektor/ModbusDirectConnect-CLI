@@ -132,9 +132,8 @@ It provides cmdlets such as:
 
 ## Current Limitations
 
-- RTU over serial is not available yet in runtime (`--serial` targets are parsed, but runtime support is pending).
+- Modbus ASCII (`--ascii`) is reserved and currently returns not implemented.
 - Coil write routes are parsed (`--write-coil`, `--write-multi-coil`) but not available in the current library runtime.
-- `--ascii` is reserved and currently returns not implemented.
 - Some advanced decode/format flags are accepted as milestones but are not fully implemented yet.
 
 ## Help
