@@ -26,7 +26,9 @@ Release assets:
 # for ARM64 use mbdc-linux-arm64.tar.gz
 tar -xzf mbdc-linux-amd64.tar.gz
 chmod +x mbdc
-sudo mv mbdc /usr/local/bin/
+sudo mkdir -p /usr/local/lib/mbdc
+sudo mv mbdc libSystem.IO.Ports.Native.so /usr/local/lib/mbdc/
+sudo ln -sf /usr/local/lib/mbdc/mbdc /usr/local/bin/mbdc
 mbdc --version
 ```
 
