@@ -1,0 +1,102 @@
+name: Publish Chocolatey
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Stable tag to publish (for example v2.3.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: ${{ vars.ENABLE_CHOCOLATEY_PUBLISH == 'true' && (github.event_name != 'release' || github.event.release.prerelease == false) }}
+    runs-on: windows-latest
+    env:
+      CHOCO_API: ${{ secrets.CHOCO_API }}
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="${{ inputs.release_tag }}"
+          fi
+
+          tag="${tag#v}"
+          if ! [[ "${tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected stable semver tag (X.Y.Z)." >&2
+            exit 1
+          fi
+
+          echo "version=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=v${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate Chocolatey API key
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CHOCO_API)) {
+            throw "CHOCO_API secret is required to publish to Chocolatey."
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          mkdir -p ./dist
+          gh release download "${{ steps.release.outputs.release_tag }}" \
+            -p "mbdc-windows-x64.zip" \
+            -D ./dist
+
+      - name: Build Chocolatey package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = '${{ steps.release.outputs.version }}'
+          $tag = '${{ steps.release.outputs.release_tag }}'
+          $zipPath = Join-Path $PWD 'dist/mbdc-windows-x64.zip'
+          $checksum = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $assetUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/mbdc-windows-x64.zip"
+
+          Copy-Item -Recurse -Path packaging/chocolatey -Destination choco
+
+          $nuspecTemplatePath = Join-Path $PWD 'choco/mbdc.nuspec.template'
+          $nuspecOutPath = Join-Path $PWD 'choco/mbdc.nuspec'
+          $nuspecTemplate = Get-Content -Path $nuspecTemplatePath -Raw
+          $nuspecRendered = $nuspecTemplate.Replace('{{VERSION}}', $version)
+          Set-Content -Path $nuspecOutPath -Encoding utf8 -Value $nuspecRendered
+          Remove-Item $nuspecTemplatePath -Force
+
+          $installScriptPath = Join-Path $PWD 'choco/tools/chocolateyinstall.ps1'
+          $installTemplate = Get-Content -Path $installScriptPath -Raw
+          $installRendered = $installTemplate.Replace('{{URL64}}', $assetUrl).Replace('{{CHECKSUM64}}', $checksum)
+          Set-Content -Path $installScriptPath -Encoding utf8 -Value $installRendered
+
+          Push-Location choco
+          choco pack .\mbdc.nuspec
+          Pop-Location
+
+      - name: Push Chocolatey package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = '${{ steps.release.outputs.version }}'
+          $package = Join-Path $PWD "choco/mbdc.$version.nupkg"
+          if (-not (Test-Path $package)) {
+            throw "Chocolatey package not found: $package"
+          }
+
+          choco push $package --source 'https://push.chocolatey.org/' --api-key $env:CHOCO_API
