@@ -1,0 +1,57 @@
+name: Publish Winget (Scaffold)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Stable tag to publish (for example v2.3.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: ${{ vars.ENABLE_WINGET_PUBLISH == 'true' && (github.event_name != 'release' || github.event.release.prerelease == false) }}
+    runs-on: windows-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="${{ inputs.release_tag }}"
+          fi
+
+          tag="${tag#v}"
+          if ! [[ "${tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected stable semver tag (X.Y.Z)." >&2
+            exit 1
+          fi
+
+          echo "version=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=v${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          mkdir -p ./dist
+          gh release download "${{ steps.release.outputs.release_tag }}" \
+            -p "mbdc-windows-x64.zip" \
+            -D ./dist
+
+      - name: Publish to Winget (TODO)
+        shell: pwsh
+        run: |
+          Write-Host "Scaffold only. Set ENABLE_WINGET_PUBLISH=true and add secrets before enabling publish logic."
+          Write-Host "Target version: ${{ steps.release.outputs.version }}"

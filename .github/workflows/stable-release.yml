@@ -1,0 +1,347 @@
+name: Stable Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - '!v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Source commit SHA or tag (for example v2.3.0-rc.1)"
+        required: true
+        type: string
+      stable_version:
+        description: "Stable version to publish (for example 2.3.0)"
+        required: true
+        type: string
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: true
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  resolve:
+    name: Resolve Stable Release Inputs
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and source SHA
+        id: resolve
+        shell: bash
+        env:
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+          INPUT_STABLE_VERSION: ${{ inputs.stable_version }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            source_ref="${INPUT_SOURCE_REF}"
+            stable_version="${INPUT_STABLE_VERSION}"
+
+            if [ -z "${source_ref}" ] || [ -z "${stable_version}" ]; then
+              echo "workflow_dispatch requires source_ref and stable_version." >&2
+              exit 1
+            fi
+          else
+            release_tag="${GITHUB_REF_NAME}"
+            source_ref="${release_tag}"
+            stable_version="${release_tag#v}"
+          fi
+
+          stable_version="${stable_version#v}"
+          if ! [[ "${stable_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable version must be X.Y.Z (got '${stable_version}')." >&2
+            exit 1
+          fi
+
+          release_tag="v${stable_version}"
+          source_sha="$(git rev-parse "${source_ref}^{commit}")"
+
+          echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_version=${stable_version}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "release_tag=${release_tag}"
+            echo "release_version=${stable_version}"
+            echo "source_sha=${source_sha}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  ensure-release:
+    name: Ensure Stable GitHub Release
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure stable tag exists on source commit
+        shell: bash
+        run: |
+          tag="${{ needs.resolve.outputs.release_tag }}"
+          source_sha="${{ needs.resolve.outputs.source_sha }}"
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            existing_sha="$(git rev-list -n 1 "${tag}")"
+            if [ "${existing_sha}" != "${source_sha}" ]; then
+              echo "Tag ${tag} already exists at ${existing_sha}, expected ${source_sha}." >&2
+              exit 1
+            fi
+            echo "Tag ${tag} already exists at ${source_sha}."
+          else
+            git tag "${tag}" "${source_sha}"
+            git push origin "refs/tags/${tag}"
+            echo "Created and pushed tag ${tag} -> ${source_sha}."
+          fi
+
+      - name: Ensure GitHub release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${{ needs.resolve.outputs.release_tag }}"
+          source_sha="${{ needs.resolve.outputs.source_sha }}"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "GitHub release ${tag} already exists."
+          else
+            gh release create "${tag}" \
+              --target "${source_sha}" \
+              --title "${tag}" \
+              --generate-notes \
+              --latest
+            echo "Created GitHub release ${tag}."
+          fi
+
+  publish-cli:
+    name: Publish CLI (${{ matrix.rid }})
+    needs: [resolve, ensure-release]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact_name: mbdc-linux-amd64
+            linux_out_dir: out/linux-amd64
+            deb_arch: amd64
+            nfpm_config: packaging/nfpm.amd64.yaml
+            binary_name: mbdc
+          - os: ubuntu-latest
+            rid: linux-arm64
+            artifact_name: mbdc-linux-arm64
+            linux_out_dir: out/linux-arm64
+            deb_arch: arm64
+            nfpm_config: packaging/nfpm.arm64.yaml
+            binary_name: mbdc
+          - os: windows-latest
+            rid: win-x64
+            artifact_name: mbdc-windows-x64
+            linux_out_dir: ""
+            deb_arch: ""
+            nfpm_config: ""
+            binary_name: mbdc.exe
+          - os: macos-latest
+            rid: osx-x64
+            artifact_name: mbdc-macos-x64
+            linux_out_dir: ""
+            deb_arch: ""
+            nfpm_config: ""
+            binary_name: mbdc
+
+    steps:
+      - name: Checkout code at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.release_tag }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          source-url: https://nuget.pkg.github.com/effektor/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || secrets.GITHUB_TOKEN }}
+
+      - name: Restore dependencies
+        run: dotnet restore ModbusDirectConnect.CLI.sln
+
+      - name: Publish framework-dependent single-file
+        shell: bash
+        run: |
+          dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained false \
+            --output ./publish/${{ matrix.rid }} \
+            -p:PublishSingleFile=true \
+            -p:Version=${{ needs.resolve.outputs.release_version }}
+
+      - name: Prepare Linux package input
+        if: matrix.deb_arch != ''
+        shell: bash
+        run: |
+          mkdir -p "${{ matrix.linux_out_dir }}"
+          cp "./publish/${{ matrix.rid }}/${{ matrix.binary_name }}" "${{ matrix.linux_out_dir }}/mbdc"
+          if [ -f "./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so" ]; then
+            cp "./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so" "${{ matrix.linux_out_dir }}/"
+          fi
+          chmod +x "${{ matrix.linux_out_dir }}/mbdc"
+
+      - name: Build Debian package
+        if: matrix.deb_arch != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install nfpm
+        if: matrix.deb_arch != ''
+        shell: bash
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Pack Debian package
+        if: matrix.deb_arch != ''
+        env:
+          VERSION: ${{ needs.resolve.outputs.release_version }}
+        shell: bash
+        run: |
+          mkdir -p ./deb
+          nfpm pkg \
+            --packager deb \
+            --config "${{ matrix.nfpm_config }}" \
+            --target "./deb/mbdc_${VERSION}_${{ matrix.deb_arch }}.deb"
+
+      - name: Create artifact bundle
+        shell: bash
+        run: |
+          mkdir -p ./artifact-bundle
+          cp "./publish/${{ matrix.rid }}/${{ matrix.binary_name }}" ./artifact-bundle/
+          if [ -f "./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so" ]; then
+            cp "./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so" ./artifact-bundle/
+          fi
+          cp ./LICENSE ./artifact-bundle/
+          cp ./README.md ./artifact-bundle/
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-bundle
+          path: ./artifact-bundle/
+          retention-days: 7
+
+      - name: Upload deb package
+        if: matrix.deb_arch != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-deb
+          path: ./deb/*.deb
+          retention-days: 7
+
+  package-powershell-module:
+    name: Package PowerShell Module
+    needs: [resolve, ensure-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.release_tag }}
+
+      - name: Normalize PowerShell manifest version for stable release
+        shell: bash
+        run: |
+          version='${{ needs.resolve.outputs.release_version }}'
+          sed -E -i "s/^(\s*ModuleVersion\s*=\s*)'[^']+'(.*)$/\1'${version}'\2/" PowerShell/ModbusDirectConnect.psd1
+
+      - name: Create PowerShell module package
+        shell: bash
+        run: |
+          mkdir -p ./release-assets/ModbusDirectConnect
+          cp -r ./PowerShell/* ./release-assets/ModbusDirectConnect/
+          cp ./LICENSE ./release-assets/ModbusDirectConnect/
+          cp ./README.md ./release-assets/ModbusDirectConnect/
+          cd ./release-assets
+          zip -r ../ModbusDirectConnect-PowerShell.zip ModbusDirectConnect
+
+      - name: Upload PowerShell bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: powershell-module-bundle
+          path: ./ModbusDirectConnect-PowerShell.zip
+          retention-days: 7
+
+  upload-release-assets:
+    name: Upload Stable Release Assets
+    needs: [resolve, ensure-release, publish-cli, package-powershell-module]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: ./downloaded-artifacts
+
+      - name: Create archives
+        shell: bash
+        run: |
+          mkdir -p ./release-assets
+
+          tar -czf ./release-assets/mbdc-linux-amd64.tar.gz -C ./downloaded-artifacts/mbdc-linux-amd64-bundle .
+          tar -czf ./release-assets/mbdc-linux-arm64.tar.gz -C ./downloaded-artifacts/mbdc-linux-arm64-bundle .
+          tar -czf ./release-assets/mbdc-macos-x64.tar.gz -C ./downloaded-artifacts/mbdc-macos-x64-bundle .
+
+          pushd ./downloaded-artifacts/mbdc-windows-x64-bundle
+          zip -r ../../release-assets/mbdc-windows-x64.zip .
+          popd
+
+          cp ./downloaded-artifacts/mbdc-linux-amd64-deb/*.deb ./release-assets/
+          cp ./downloaded-artifacts/mbdc-linux-arm64-deb/*.deb ./release-assets/
+          cp ./downloaded-artifacts/powershell-module-bundle/ModbusDirectConnect-PowerShell.zip ./release-assets/
+
+      - name: Upload assets to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          deb_files=(./release-assets/*.deb)
+          if [ ${#deb_files[@]} -eq 0 ]; then
+            echo "No deb artifacts found in ./release-assets"
+            exit 1
+          fi
+
+          gh release upload "${RELEASE_TAG}" \
+            --repo "${GH_REPO}" \
+            ./release-assets/mbdc-linux-amd64.tar.gz \
+            ./release-assets/mbdc-linux-arm64.tar.gz \
+            ./release-assets/mbdc-windows-x64.zip \
+            ./release-assets/mbdc-macos-x64.tar.gz \
+            "${deb_files[@]}" \
+            ./release-assets/ModbusDirectConnect-PowerShell.zip \
+            --clobber

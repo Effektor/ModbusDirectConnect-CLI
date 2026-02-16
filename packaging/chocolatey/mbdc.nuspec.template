@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>mbdc</id>
+    <version>{{VERSION}}</version>
+    <title>ModbusDirectConnect CLI</title>
+    <authors>Effektor</authors>
+    <projectUrl>https://github.com/Effektor/ModbusDirectConnect-CLI</projectUrl>
+    <licenseUrl>https://github.com/Effektor/ModbusDirectConnect-CLI/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>mbdc is a command-line Modbus client for quick reads, writes, and monitoring.</description>
+    <tags>modbus cli automation industrial</tags>
+  </metadata>
+</package>
