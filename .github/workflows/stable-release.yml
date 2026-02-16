@@ -2,6 +2,9 @@ name: Stable Release
 
 on:
   push:
+    branches:
+      - release
+      - Release
     tags:
       - 'v*.*.*'
       - '!v*.*.*-*'
@@ -45,6 +48,8 @@ jobs:
         shell: bash
         env:
           GITHUB_REF: ${{ github.ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
           GITHUB_SHA: ${{ github.sha }}
           INPUT_SOURCE_REF: ${{ inputs.source_ref }}
           INPUT_STABLE_VERSION: ${{ inputs.stable_version }}
@@ -57,6 +62,27 @@ jobs:
               echo "workflow_dispatch requires source_ref and stable_version." >&2
               exit 1
             fi
+          elif [ "${GITHUB_REF_TYPE}" = "branch" ]; then
+            if [ "${GITHUB_REF_NAME}" != "release" ] && [ "${GITHUB_REF_NAME}" != "Release" ]; then
+              echo "Unsupported release branch '${GITHUB_REF_NAME}'." >&2
+              exit 1
+            fi
+
+            git fetch --tags --force
+            rc_tag="$(
+              git tag --merged "${GITHUB_SHA}" -l 'v*.*.*-rc.*' \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
+                | sort -V \
+                | tail -n 1
+            )"
+            if [ -z "${rc_tag}" ]; then
+              echo "No RC tag found in release branch history at ${GITHUB_SHA}." >&2
+              exit 1
+            fi
+
+            source_ref="${rc_tag}"
+            stable_version="${rc_tag%%-rc.*}"
+            stable_version="${stable_version#v}"
           else
             release_tag="${GITHUB_REF_NAME}"
             if [ "${release_tag}" = "Release" ]; then
@@ -106,6 +132,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      publish_assets: ${{ steps.ensure_release.outputs.publish_assets }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -132,15 +160,21 @@ jobs:
           fi
 
       - name: Ensure GitHub release exists
+        id: ensure_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           tag="${{ needs.resolve.outputs.release_tag }}"
           source_sha="${{ needs.resolve.outputs.source_sha }}"
+          publish_assets="true"
 
           if gh release view "${tag}" >/dev/null 2>&1; then
             echo "GitHub release ${tag} already exists."
+            if [ "${EVENT_NAME}" != "workflow_dispatch" ]; then
+              publish_assets="false"
+            fi
           else
             gh release create "${tag}" \
               --target "${source_sha}" \
@@ -150,9 +184,12 @@ jobs:
             echo "Created GitHub release ${tag}."
           fi
 
+          echo "publish_assets=${publish_assets}" >> "${GITHUB_OUTPUT}"
+
   publish-cli:
     name: Publish CLI (${{ matrix.rid }})
     needs: [resolve, ensure-release]
+    if: needs.ensure-release.outputs.publish_assets == 'true'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -282,6 +319,7 @@ jobs:
   package-powershell-module:
     name: Package PowerShell Module
     needs: [resolve, ensure-release]
+    if: needs.ensure-release.outputs.publish_assets == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -317,6 +355,7 @@ jobs:
   upload-release-assets:
     name: Upload Stable Release Assets
     needs: [resolve, ensure-release, publish-cli, package-powershell-module]
+    if: needs.ensure-release.outputs.publish_assets == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -366,3 +405,39 @@ jobs:
             "${deb_files[@]}" \
             ./release-assets/ModbusDirectConnect-PowerShell.zip \
             --clobber
+
+  trigger-publishers:
+    name: Trigger Downstream Publishers
+    needs: [resolve, ensure-release, upload-release-assets]
+    if: needs.ensure-release.outputs.publish_assets == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Trigger Chocolatey publish workflow
+        if: vars.ENABLE_CHOCOLATEY_PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh workflow run "Publish Chocolatey" \
+            -f release_tag="${{ needs.resolve.outputs.release_tag }}"
+
+      - name: Trigger Winget publish workflow
+        if: vars.ENABLE_WINGET_PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh workflow run "Publish Winget (Scaffold)" \
+            -f release_tag="${{ needs.resolve.outputs.release_tag }}"
+
+      - name: Trigger PSGallery publish workflow
+        if: vars.ENABLE_PSGALLERY_PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh workflow run "Publish PSGallery (Scaffold)" \
+            -f release_tag="${{ needs.resolve.outputs.release_tag }}"

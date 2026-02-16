@@ -38,8 +38,11 @@ jobs:
                 | head -n 1
             )"
             if [ -z "${tag}" ]; then
-              echo "No stable release found targeting commit ${head_sha}." >&2
-              exit 1
+              echo "No stable release found targeting commit ${head_sha}. Skipping publish."
+              echo "skip_publish=true" >> "${GITHUB_OUTPUT}"
+              echo "version=" >> "${GITHUB_OUTPUT}"
+              echo "release_tag=" >> "${GITHUB_OUTPUT}"
+              exit 0
             fi
           else
             tag="${{ inputs.release_tag }}"
@@ -51,13 +54,16 @@ jobs:
             exit 1
           fi
 
+          echo "skip_publish=false" >> "${GITHUB_OUTPUT}"
           echo "version=${tag}" >> "${GITHUB_OUTPUT}"
           echo "release_tag=v${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout
+        if: steps.release.outputs.skip_publish != 'true'
         uses: actions/checkout@v4
 
       - name: Download Windows release asset
+        if: steps.release.outputs.skip_publish != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -68,6 +74,7 @@ jobs:
             -D ./dist
 
       - name: Publish to Winget (TODO)
+        if: steps.release.outputs.skip_publish != 'true'
         shell: pwsh
         run: |
           Write-Host "Scaffold only. Set ENABLE_WINGET_PUBLISH=true and add secrets before enabling publish logic."
