@@ -51,6 +51,7 @@ jobs:
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_REF_TYPE: ${{ github.ref_type }}
           GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
           INPUT_SOURCE_REF: ${{ inputs.source_ref }}
           INPUT_STABLE_VERSION: ${{ inputs.stable_version }}
         run: |
@@ -68,21 +69,34 @@ jobs:
               exit 1
             fi
 
-            git fetch --tags --force
-            rc_tag="$(
-              git tag --merged "${GITHUB_SHA}" -l 'v*.*.*-rc.*' \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
-                | sort -V \
-                | tail -n 1
-            )"
-            if [ -z "${rc_tag}" ]; then
-              echo "No RC tag found in release branch history at ${GITHUB_SHA}." >&2
-              exit 1
+            before="$(jq -r '.before // empty' "${GITHUB_EVENT_PATH}")"
+            after="$(jq -r '.after // empty' "${GITHUB_EVENT_PATH}")"
+            release_line=""
+            if [ -n "${before}" ] && [ -n "${after}" ]; then
+              release_line="$(git log --format='%H %s' "${before}..${after}" | grep -E '^[0-9a-f]{40} chore\((Release|release)\): release [0-9]+\.[0-9]+\.[0-9]+$' | tail -1 || true)"
             fi
 
-            source_ref="${rc_tag}"
-            stable_version="${rc_tag%%-rc.*}"
-            stable_version="${stable_version#v}"
+            if [ -n "${release_line}" ]; then
+              source_ref="$(echo "${release_line}" | awk '{print $1}')"
+              stable_version="$(echo "${release_line}" | sed -E 's/^[0-9a-f]{40} chore\((Release|release)\): release ([0-9]+\.[0-9]+\.[0-9]+)$/\2/')"
+            else
+              git fetch --tags --force
+              rc_tag="$(
+                git tag --merged "${GITHUB_SHA}" -l 'v*.*.*-rc.*' \
+                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
+                  | sort -V \
+                  | tail -n 1
+              )"
+              if [ -z "${rc_tag}" ]; then
+                echo "No release commit or RC tag found in release branch history at ${GITHUB_SHA}." >&2
+                exit 1
+              fi
+
+              source_ref="${rc_tag}"
+              stable_version="${rc_tag%%-rc.*}"
+              stable_version="${stable_version#v}"
+            fi
+
           else
             release_tag="${GITHUB_REF_NAME}"
             if [ "${release_tag}" = "Release" ]; then
