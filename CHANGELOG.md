@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.2](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.1...v2.2.2) (2026-02-16)
+
+
+### Bug Fixes
+
+* **ci:** enforce rc tag suffix for prereleases ([57cd763](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/57cd763c19a1173349d19e60faf49b05f83811ff))
+* **ci:** enforce rc-tag prereleases on main ([d679b21](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/d679b213a3db55efaf8eb6360c8b776935839b7c))
+* **ci:** prerelease-on-main + stable release pipeline ([5957ee6](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/5957ee6b0888fdd48aba6c1721095509da0f1832))
+* **ci:** split prerelease and stable release pipelines ([a4bc105](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/a4bc10599f0735a761876f8c4f445c7442916e2b))
+
 ## [2.2.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.0...v2.2.1) (2026-02-14)
 
 
