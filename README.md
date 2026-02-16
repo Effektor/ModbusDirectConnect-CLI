@@ -9,6 +9,10 @@ It is built for fast troubleshooting and day-to-day field usage.
 Download prebuilt binaries from GitHub Releases:
 - https://github.com/Effektor/ModbusDirectConnect-CLI/releases
 
+Release channel flow:
+- `main` publishes `-rc.N` prereleases for field testing.
+- `release` is the promotion branch for stable production releases.
+
 Release assets:
 - `mbdc-linux-amd64.tar.gz`
 - `mbdc-linux-arm64.tar.gz`
