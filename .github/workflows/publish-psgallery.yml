@@ -3,9 +3,6 @@ name: Publish PSGallery (Scaffold)
 on:
   release:
     types: [published]
-  workflow_run:
-    workflows: ["Stable Release"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -18,7 +15,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ vars.ENABLE_PSGALLERY_PUBLISH == 'true' && (github.event_name != 'release' || github.event.release.prerelease == false) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ vars.ENABLE_PSGALLERY_PUBLISH == 'true' && (github.event_name != 'release' || github.event.release.prerelease == false) }}
     runs-on: ubuntu-latest
     steps:
       - name: Resolve release tag
@@ -29,21 +26,6 @@ jobs:
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
             tag="${{ github.event.release.tag_name }}"
-          elif [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
-            head_sha="${{ github.event.workflow_run.head_sha }}"
-            tag="$(
-              gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
-                --jq ".[] | select((.prerelease | not) and (.draft | not) and (.target_commitish == \"${head_sha}\")) | .tag_name" \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-                | head -n 1
-            )"
-            if [ -z "${tag}" ]; then
-              echo "No stable release found targeting commit ${head_sha}. Skipping publish."
-              echo "skip_publish=true" >> "${GITHUB_OUTPUT}"
-              echo "version=" >> "${GITHUB_OUTPUT}"
-              echo "release_tag=" >> "${GITHUB_OUTPUT}"
-              exit 0
-            fi
           else
             tag="${{ inputs.release_tag }}"
           fi
