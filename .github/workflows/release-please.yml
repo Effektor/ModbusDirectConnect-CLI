@@ -19,6 +19,10 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release_outputs.outputs.release_created }}
       tag_name: ${{ steps.release_outputs.outputs.tag_name }}
