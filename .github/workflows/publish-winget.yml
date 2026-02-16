@@ -3,6 +3,9 @@ name: Publish Winget (Scaffold)
 on:
   release:
     types: [published]
+  workflow_run:
+    workflows: ["Stable Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -15,15 +18,29 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ vars.ENABLE_WINGET_PUBLISH == 'true' && (github.event_name != 'release' || github.event.release.prerelease == false) }}
+    if: ${{ vars.ENABLE_WINGET_PUBLISH == 'true' && (github.event_name != 'release' || github.event.release.prerelease == false) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: windows-latest
     steps:
       - name: Resolve release tag
         id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
             tag="${{ github.event.release.tag_name }}"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            head_sha="${{ github.event.workflow_run.head_sha }}"
+            tag="$(
+              gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+                --jq ".[] | select((.prerelease | not) and (.draft | not) and (.target_commitish == \"${head_sha}\")) | .tag_name" \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+                | head -n 1
+            )"
+            if [ -z "${tag}" ]; then
+              echo "No stable release found targeting commit ${head_sha}." >&2
+              exit 1
+            fi
           else
             tag="${{ inputs.release_tag }}"
           fi

@@ -22,6 +22,10 @@ jobs:
       release_created: ${{ steps.release_outputs.outputs.release_created }}
       tag_name: ${{ steps.release_outputs.outputs.tag_name }}
       version: ${{ steps.release_outputs.outputs.version }}
+      rc_created: ${{ steps.rc_release.outputs.rc_created }}
+      rc_tag: ${{ steps.rc_release.outputs.rc_tag }}
+      rc_version: ${{ steps.rc_release.outputs.rc_version }}
+      rc_source_sha: ${{ steps.rc_release.outputs.source_sha }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -185,6 +189,7 @@ jobs:
           echo "rc_created=true" >> "${GITHUB_OUTPUT}"
           echo "rc_tag=${rc_tag}" >> "${GITHUB_OUTPUT}"
           echo "rc_version=${rc_version}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Summary
         shell: bash
@@ -195,3 +200,87 @@ jobs:
           echo "rc_created=${{ steps.rc_release.outputs.rc_created }}" >> "${GITHUB_STEP_SUMMARY}"
           echo "rc_tag=${{ steps.rc_release.outputs.rc_tag }}" >> "${GITHUB_STEP_SUMMARY}"
           echo "rc_version=${{ steps.rc_release.outputs.rc_version }}" >> "${GITHUB_STEP_SUMMARY}"
+
+  publish-rc-cli:
+    name: Publish RC CLI (${{ matrix.rid }})
+    needs: release-please
+    if: needs.release-please.outputs.rc_created == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+      packages: read
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            asset_name: mbdc-linux-amd64.tar.gz
+            binary_name: mbdc
+          - os: ubuntu-latest
+            rid: linux-arm64
+            asset_name: mbdc-linux-arm64.tar.gz
+            binary_name: mbdc
+          - os: windows-latest
+            rid: win-x64
+            asset_name: mbdc-windows-x64.zip
+            binary_name: mbdc.exe
+          - os: macos-latest
+            rid: osx-x64
+            asset_name: mbdc-macos-x64.tar.gz
+            binary_name: mbdc
+    steps:
+      - name: Checkout code at RC tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.rc_tag }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          source-url: https://nuget.pkg.github.com/effektor/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || secrets.GITHUB_TOKEN }}
+
+      - name: Restore dependencies
+        shell: bash
+        run: dotnet restore ModbusDirectConnect.CLI.sln
+
+      - name: Publish framework-dependent single-file
+        shell: bash
+        run: |
+          dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained false \
+            --output ./publish/${{ matrix.rid }} \
+            -p:PublishSingleFile=true \
+            -p:Version=${{ needs.release-please.outputs.rc_version }}
+
+      - name: Create RC archive
+        shell: bash
+        run: |
+          mkdir -p ./artifact-bundle
+          cp "./publish/${{ matrix.rid }}/${{ matrix.binary_name }}" ./artifact-bundle/
+          if [ -f "./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so" ]; then
+            cp "./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so" ./artifact-bundle/
+          fi
+          cp ./LICENSE ./artifact-bundle/
+          cp ./README.md ./artifact-bundle/
+
+          if [[ "${{ matrix.asset_name }}" == *.zip ]]; then
+            pushd ./artifact-bundle
+            zip -r "../${{ matrix.asset_name }}" .
+            popd
+          else
+            tar -czf "./${{ matrix.asset_name }}" -C ./artifact-bundle .
+          fi
+
+      - name: Upload RC asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${{ needs.release-please.outputs.rc_tag }}" \
+            "./${{ matrix.asset_name }}" \
+            --clobber

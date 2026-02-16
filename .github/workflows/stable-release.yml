@@ -5,6 +5,7 @@ on:
     tags:
       - 'v*.*.*'
       - '!v*.*.*-*'
+      - 'Release'
   workflow_dispatch:
     inputs:
       source_ref:
@@ -43,6 +44,8 @@ jobs:
         id: resolve
         shell: bash
         env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
           INPUT_SOURCE_REF: ${{ inputs.source_ref }}
           INPUT_STABLE_VERSION: ${{ inputs.stable_version }}
         run: |
@@ -56,8 +59,26 @@ jobs:
             fi
           else
             release_tag="${GITHUB_REF_NAME}"
-            source_ref="${release_tag}"
-            stable_version="${release_tag#v}"
+            if [ "${release_tag}" = "Release" ]; then
+              source_sha="$(git rev-parse "${GITHUB_REF}^{commit}")"
+              rc_tag="$(
+                git tag --points-at "${source_sha}" \
+                  | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
+                  | sort -V \
+                  | tail -n 1
+              )"
+              if [ -z "${rc_tag}" ]; then
+                echo "Tag 'Release' must point to a commit tagged with vX.Y.Z-rc.N." >&2
+                exit 1
+              fi
+
+              source_ref="${source_sha}"
+              stable_version="${rc_tag%%-rc.*}"
+              stable_version="${stable_version#v}"
+            else
+              source_ref="${release_tag}"
+              stable_version="${release_tag#v}"
+            fi
           fi
 
           stable_version="${stable_version#v}"
