@@ -40,10 +40,12 @@ jobs:
           tag_name="${{ steps.release_gh.outputs.tag_name }}"
           version="${{ steps.release_gh.outputs.version }}"
 
+          # Set default for release_created if empty
           if [ -z "${release_created}" ]; then
             release_created="false"
           fi
 
+          # Output all values (tag_name and version can be empty if no release was created)
           echo "release_created=${release_created}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
