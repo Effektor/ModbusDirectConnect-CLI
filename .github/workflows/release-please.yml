@@ -24,35 +24,21 @@ jobs:
       tag_name: ${{ steps.release_outputs.outputs.tag_name }}
       version: ${{ steps.release_outputs.outputs.version }}
     steps:       
-      - name: Run release-please (GITHUB_TOKEN)
+      - name: Run release-please
         id: release_gh        
         uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
       - name: Resolve release outputs
         id: release_outputs
         shell: bash
-        env:                              
-          RP_CREATED_GH: ${{ steps.release_gh.outputs.release_created }}
-          RP_TAG_GH: ${{ steps.release_gh.outputs.tag_name }}
-          RP_VERSION_GH: ${{ steps.release_gh.outputs.version }}
         run: |
-          release_created="${RP_CREATED_PAT}"
-          tag_name="${RP_TAG_PAT}"
-          version="${RP_VERSION_PAT}"
-
-          if [ -z "${release_created}" ]; then
-            release_created="${RP_CREATED_GH}"
-          fi
-          if [ -z "${tag_name}" ]; then
-            tag_name="${RP_TAG_GH}"
-          fi
-          if [ -z "${version}" ]; then
-            version="${RP_VERSION_GH}"
-          fi
+          release_created="${{ steps.release_gh.outputs.release_created }}"
+          tag_name="${{ steps.release_gh.outputs.tag_name }}"
+          version="${{ steps.release_gh.outputs.version }}"
 
           if [ -z "${release_created}" ]; then
             release_created="false"
@@ -112,7 +98,7 @@ jobs:
           dotnet-version: '10.0.x'
           source-url: https://nuget.pkg.github.com/effektor/index.json
         env:
-          NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || secrets.GITHUB_TOKEN }}
+          NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || github.token }}
 
       - name: Restore dependencies
         run: dotnet restore ModbusDirectConnect.CLI.sln
@@ -248,7 +234,7 @@ jobs:
 
       - name: Upload assets to GitHub release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           shopt -s nullglob
