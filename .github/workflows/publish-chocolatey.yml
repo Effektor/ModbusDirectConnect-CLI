@@ -40,8 +40,11 @@ jobs:
                 | head -n 1
             )"
             if [ -z "${tag}" ]; then
-              echo "No stable release found targeting commit ${head_sha}." >&2
-              exit 1
+              echo "No stable release found targeting commit ${head_sha}. Skipping publish."
+              echo "skip_publish=true" >> "${GITHUB_OUTPUT}"
+              echo "version=" >> "${GITHUB_OUTPUT}"
+              echo "release_tag=" >> "${GITHUB_OUTPUT}"
+              exit 0
             fi
           else
             tag="${{ inputs.release_tag }}"
@@ -53,10 +56,12 @@ jobs:
             exit 1
           fi
 
+          echo "skip_publish=false" >> "${GITHUB_OUTPUT}"
           echo "version=${tag}" >> "${GITHUB_OUTPUT}"
           echo "release_tag=v${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Validate Chocolatey API key
+        if: steps.release.outputs.skip_publish != 'true'
         shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:CHOCO_API)) {
@@ -64,9 +69,11 @@ jobs:
           }
 
       - name: Checkout
+        if: steps.release.outputs.skip_publish != 'true'
         uses: actions/checkout@v4
 
       - name: Download Windows release asset
+        if: steps.release.outputs.skip_publish != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -77,6 +84,7 @@ jobs:
             -D ./dist
 
       - name: Build Chocolatey package
+        if: steps.release.outputs.skip_publish != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -106,6 +114,7 @@ jobs:
           Pop-Location
 
       - name: Push Chocolatey package
+        if: steps.release.outputs.skip_publish != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
