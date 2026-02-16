@@ -3,7 +3,7 @@
     RootModule = 'ModbusDirectConnect.psm1'
     
     # Version number of this module
-    ModuleVersion = '2.2.2' # x-release-please-version
+    ModuleVersion = '2.2.3' # x-release-please-version
     
     # ID used to uniquely identify this module
     GUID = 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d'
