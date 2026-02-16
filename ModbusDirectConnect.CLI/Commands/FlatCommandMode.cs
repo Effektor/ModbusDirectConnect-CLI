@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using ModbusDirectConnect.CLI.Client;
 using ModbusDirectConnect.CLI.Infrastructure;
@@ -665,6 +667,89 @@ public static class FlatCommandMode
         return current.Select((line, i) => changedIndexes.Contains(i) ? $"* {line}" : line);
     }
 
+    private static void WriteValueLines(IReadOnlyList<string> lines, bool multiColumnForWatch)
+    {
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        if (!multiColumnForWatch)
+        {
+            foreach (var line in lines)
+            {
+                Console.WriteLine(line);
+            }
+
+            return;
+        }
+
+        var availableHeight = GetConsoleHeight();
+        if (lines.Count <= availableHeight)
+        {
+            foreach (var line in lines)
+            {
+                Console.WriteLine(line);
+            }
+
+            return;
+        }
+
+        var columns = (lines.Count + availableHeight - 1) / availableHeight;
+        var widths = new int[columns];
+        for (var col = 0; col < columns; col++)
+        {
+            var columnStart = col * availableHeight;
+            var columnEnd = Math.Min(columnStart + availableHeight, lines.Count);
+            for (var index = columnStart; index < columnEnd; index++)
+            {
+                widths[col] = Math.Max(widths[col], lines[index].Length);
+            }
+        }
+
+        const int ColumnPadding = 2;
+        for (var row = 0; row < availableHeight; row++)
+        {
+            var rowBuilder = new StringBuilder();
+            var printedAny = false;
+            for (var col = 0; col < columns; col++)
+            {
+                var index = col * availableHeight + row;
+                if (index >= lines.Count)
+                {
+                    continue;
+                }
+
+                var entry = lines[index];
+                var padding = col == columns - 1 ? 0 : ColumnPadding;
+                rowBuilder.Append(col == columns - 1 ? entry : entry.PadRight(widths[col] + padding));
+                printedAny = true;
+            }
+
+            if (printedAny)
+            {
+                Console.WriteLine(rowBuilder.ToString());
+            }
+        }
+    }
+
+    private static int GetConsoleHeight()
+    {
+        try
+        {
+            var height = Math.Max(Console.WindowHeight - 1, 1);
+            return height > 0 ? height : 1;
+        }
+        catch (IOException)
+        {
+            return 20;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return 20;
+        }
+    }
+
     private static void RenderBoolValues(ushort startAddress, bool[] values, OutputOptions output)
     {
         if (output.Json)
@@ -685,18 +770,14 @@ public static class FlatCommandMode
             return;
         }
 
+        var lines = new List<string>(values.Length);
         for (var i = 0; i < values.Length; i++)
         {
             var valueText = output.ShowBool ? values[i].ToString() : (values[i] ? "1" : "0");
-            if (output.Quiet)
-            {
-                Console.WriteLine(valueText);
-            }
-            else
-            {
-                Console.WriteLine($"{startAddress + i}: {valueText}");
-            }
+            lines.Add(output.Quiet ? valueText : $"{startAddress + i}: {valueText}");
         }
+
+        WriteValueLines(lines, output.WatchIntervalSeconds is not null && output.MonitorIntervalSeconds is null);
     }
 
     private static void RenderRegisterValues(ushort startAddress, ushort[] values, OutputOptions output)
@@ -736,17 +817,14 @@ public static class FlatCommandMode
             return;
         }
 
+        var lines = new List<string>(values.Length);
         for (var i = 0; i < values.Length; i++)
         {
-            if (output.Quiet)
-            {
-                Console.WriteLine(values[i]);
-            }
-            else
-            {
-                Console.WriteLine($"{startAddress + i}: {values[i]}");
-            }
+            var entry = output.Quiet ? values[i].ToString() : $"{startAddress + i}: {values[i]}";
+            lines.Add(entry);
         }
+
+        WriteValueLines(lines, output.WatchIntervalSeconds is not null && output.MonitorIntervalSeconds is null);
     }
 
     private static byte[] ToBytes(ushort[] values)
