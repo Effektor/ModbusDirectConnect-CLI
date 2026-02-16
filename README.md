@@ -12,6 +12,7 @@ Download prebuilt binaries from GitHub Releases:
 Release channel flow:
 - `main` publishes `-rc.N` prereleases for field testing.
 - `release` is the promotion branch for stable production releases.
+- Merging tested RC history into `release` triggers the stable artifact pipeline.
 
 Release assets:
 - `mbdc-linux-amd64.tar.gz`

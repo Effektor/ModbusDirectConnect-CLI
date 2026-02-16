@@ -22,10 +22,6 @@ jobs:
       release_created: ${{ steps.release_outputs.outputs.release_created }}
       tag_name: ${{ steps.release_outputs.outputs.tag_name }}
       version: ${{ steps.release_outputs.outputs.version }}
-      rc_created: ${{ steps.rc_release.outputs.rc_created }}
-      rc_tag: ${{ steps.rc_release.outputs.rc_tag }}
-      rc_version: ${{ steps.rc_release.outputs.rc_version }}
-      rc_source_sha: ${{ steps.rc_release.outputs.source_sha }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,7 +65,6 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-          skip-github-release: true
 
       - name: Run release-please (GITHUB_TOKEN)
         id: release_gh
@@ -79,7 +74,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-          skip-github-release: true
 
       - name: Resolve release outputs
         id: release_outputs
@@ -114,97 +108,17 @@ jobs:
           echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Create RC prerelease on merged release commits
-        id: rc_release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT_NAME: ${{ github.event_name }}
-        shell: bash
-        run: |
-          if [ "${EVENT_NAME}" != "push" ]; then
-            echo "rc_created=false" >> "${GITHUB_OUTPUT}"
-            echo "Not a push event. Skipping rc release publish."
-            exit 0
-          fi
-
-          before="$(jq -r '.before // empty' "${GITHUB_EVENT_PATH}")"
-          after="$(jq -r '.after // empty' "${GITHUB_EVENT_PATH}")"
-          if [ -z "${before}" ] || [ -z "${after}" ]; then
-            echo "rc_created=false" >> "${GITHUB_OUTPUT}"
-            echo "Could not read push range from event payload."
-            exit 0
-          fi
-
-          release_line="$(git log --format='%H %s' "${before}..${after}" | grep -E '^[0-9a-f]{40} chore\(main\): release [0-9]+\.[0-9]+\.[0-9]+$' | tail -1 || true)"
-          if [ -z "${release_line}" ]; then
-            echo "rc_created=false" >> "${GITHUB_OUTPUT}"
-            echo "No merged release commit detected in this push."
-            exit 0
-          fi
-
-          source_sha="$(echo "${release_line}" | awk '{print $1}')"
-          stable_version="$(echo "${release_line}" | sed -E 's/^[0-9a-f]{40} chore\(main\): release ([0-9]+\.[0-9]+\.[0-9]+)$/\1/')"
-          if [ -z "${stable_version}" ]; then
-            echo "rc_created=false" >> "${GITHUB_OUTPUT}"
-            echo "Failed to parse release version from '${release_line}'."
-            exit 1
-          fi
-
-          git fetch --tags --force
-
-          max_rc=0
-          while IFS= read -r tag; do
-            [ -z "${tag}" ] && continue
-            rc_num="${tag##*.}"
-            if [[ "${rc_num}" =~ ^[0-9]+$ ]] && [ "${rc_num}" -gt "${max_rc}" ]; then
-              max_rc="${rc_num}"
-            fi
-          done < <(git tag -l "v${stable_version}-rc.*")
-
-          next_rc=$((max_rc + 1))
-          rc_tag="v${stable_version}-rc.${next_rc}"
-          rc_version="${stable_version}-rc.${next_rc}"
-
-          if gh release view "${rc_tag}" >/dev/null 2>&1; then
-            echo "RC release ${rc_tag} already exists; skipping creation."
-            echo "rc_created=false" >> "${GITHUB_OUTPUT}"
-            echo "rc_tag=${rc_tag}" >> "${GITHUB_OUTPUT}"
-            echo "rc_version=${rc_version}" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          if git ls-remote --tags origin "refs/tags/${rc_tag}" | grep -q .; then
-            echo "Remote tag ${rc_tag} already exists; creating/updating prerelease entry."
-          else
-            git tag "${rc_tag}" "${source_sha}"
-            git push origin "refs/tags/${rc_tag}"
-          fi
-
-          gh release create "${rc_tag}" \
-            --target "${source_sha}" \
-            --title "${rc_tag}" \
-            --generate-notes \
-            --prerelease
-
-          echo "rc_created=true" >> "${GITHUB_OUTPUT}"
-          echo "rc_tag=${rc_tag}" >> "${GITHUB_OUTPUT}"
-          echo "rc_version=${rc_version}" >> "${GITHUB_OUTPUT}"
-          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
-
       - name: Summary
         shell: bash
         run: |
           echo "release_created=${{ steps.release_outputs.outputs.release_created }}" >> "${GITHUB_STEP_SUMMARY}"
           echo "tag_name=${{ steps.release_outputs.outputs.tag_name }}" >> "${GITHUB_STEP_SUMMARY}"
           echo "version=${{ steps.release_outputs.outputs.version }}" >> "${GITHUB_STEP_SUMMARY}"
-          echo "rc_created=${{ steps.rc_release.outputs.rc_created }}" >> "${GITHUB_STEP_SUMMARY}"
-          echo "rc_tag=${{ steps.rc_release.outputs.rc_tag }}" >> "${GITHUB_STEP_SUMMARY}"
-          echo "rc_version=${{ steps.rc_release.outputs.rc_version }}" >> "${GITHUB_STEP_SUMMARY}"
 
   publish-rc-cli:
     name: Publish RC CLI (${{ matrix.rid }})
     needs: release-please
-    if: needs.release-please.outputs.rc_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' && needs.release-please.outputs.tag_name != ''
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -232,7 +146,15 @@ jobs:
       - name: Checkout code at RC tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release-please.outputs.rc_tag }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Resolve RC version from tag
+        id: rc_version
+        shell: bash
+        run: |
+          version='${{ needs.release-please.outputs.tag_name }}'
+          version="${version#v}"
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -255,7 +177,7 @@ jobs:
             --self-contained false \
             --output ./publish/${{ matrix.rid }} \
             -p:PublishSingleFile=true \
-            -p:Version=${{ needs.release-please.outputs.rc_version }}
+            -p:Version=${{ steps.rc_version.outputs.value }}
 
       - name: Create RC archive
         shell: bash
@@ -281,6 +203,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${{ needs.release-please.outputs.rc_tag }}" \
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" \
             "./${{ matrix.asset_name }}" \
             --clobber
