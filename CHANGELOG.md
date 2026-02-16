@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.2.3](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.2...v2.2.3) (2026-02-16)
+
+
+### Bug Fixes
+
+* **ci:** parse conventional PR titles and dispatch publishers from stable release ([689ecaa](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/689ecaa5ff94a7e16ef8021b98bf98ba2c4536d5))
+* **ci:** parse PR titles and stop duplicate publisher triggers ([16e5b45](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/16e5b45315d9ea8a058d1888ec563de373587b84))
+* **ci:** publish rc binaries and support Release-tag stable flow ([757a059](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/757a059b2abc1c36e54a80c8c6b369a8f8a80d56))
+* **ci:** publish rc binaries and trigger stable release from Release tag ([9c07d2f](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/9c07d2fd0e626a3f2e61a4256435bb1f80745aec))
+* **ci:** release stable from release branch and dispatch publishers ([715bf17](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/715bf17930fe7442aef6e5b62abe8dc96df56477))
+* **ci:** revert invalid release-please pattern config ([#26](https://github.com/Effektor/ModbusDirectConnect-CLI/issues/26)) ([2a17740](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/2a17740969314d9bee8899901461b9d83f02068f))
+* **ci:** support release-branch promotion to stable binaries ([fbeb399](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/fbeb399e7f0120db3b86c8dcc04ca91e9d79ee1a))
+* **release:** document rc and stable promotion branches ([05d80c3](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/05d80c3e5b6489727a9f525c626e1b1750d2b538))
+* **release:** document rc and stable promotion branches ([383bb03](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/383bb03718b9793f93d31bbed7dea0a10950ca03))
+* **release:** simplify release-please rc and stable promotion flows ([#27](https://github.com/Effektor/ModbusDirectConnect-CLI/issues/27)) ([9a4aa3f](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/9a4aa3f792e8ff5c54773aec9985b1c7f951ce2a))
+
 ## [2.2.2](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.1...v2.2.2) (2026-02-16)
 
 
