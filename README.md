@@ -14,6 +14,7 @@ Release channel flow:
 - `release` is the promotion branch for stable production releases.
 - Merging tested RC history into `release` triggers the stable artifact pipeline.
 - Stable promotion can be prepared manually via the stable release-please workflow.
+- Candidate releases are validated on RC artifacts before release-branch promotion.
 
 Release assets:
 - `mbdc-linux-amd64.tar.gz`
