@@ -1,6 +1,9 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Text;
 using ModbusDirectConnect.CLI.Client;
 using ModbusDirectConnect.CLI.Infrastructure;
@@ -158,48 +161,53 @@ public static class FlatCommandMode
 
                 if (context.ParseResult.GetValueForOption(readCoilOption) is { } readCoilSpec)
                 {
-                    var (addr, cnt) = ParseReadSpec(readCoilSpec, readCountDefault);
-                    await ExecuteReadLoop(async () => await client.ReadCoilsAsync(addr, cnt), values => RenderBoolValues(addr, values, output), output);
+                    var ranges = ParseReadRanges(readCoilSpec, readCountDefault);
+                    await ExecuteReadLoop(ranges, range => client.ReadCoilsAsync(range.Address, range.Count), (range, values) => RenderBoolValues(range.Address, values, output), output);
                     return;
                 }
 
                 if (context.ParseResult.GetValueForOption(readDiscreteOption) is { } readDiscreteSpec)
                 {
-                    var (addr, cnt) = ParseReadSpec(readDiscreteSpec, readCountDefault);
-                    await ExecuteReadLoop(async () => await client.ReadDiscreteInputsAsync(addr, cnt), values => RenderBoolValues(addr, values, output), output);
+                    var ranges = ParseReadRanges(readDiscreteSpec, readCountDefault);
+                    await ExecuteReadLoop(ranges, range => client.ReadDiscreteInputsAsync(range.Address, range.Count), (range, values) => RenderBoolValues(range.Address, values, output), output);
                     return;
                 }
 
                 if (context.ParseResult.GetValueForOption(readHoldingOption) is { } readHoldingSpec)
                 {
-                    var (addr, cnt) = ParseReadSpec(readHoldingSpec, readCountDefault);
-                    await ExecuteReadLoop(async () => await client.ReadHoldingRegistersAsync(addr, cnt), values => RenderRegisterValues(addr, values, output), output);
+                    var ranges = ParseReadRanges(readHoldingSpec, readCountDefault);
+                    await ExecuteReadLoop(ranges, range => client.ReadHoldingRegistersAsync(range.Address, range.Count), (range, values) => RenderRegisterValues(range.Address, values, output), output);
                     return;
                 }
 
                 if (context.ParseResult.GetValueForOption(readInputRegOption) is { } readInputSpec)
                 {
-                    var (addr, cnt) = ParseReadSpec(readInputSpec, readCountDefault);
-                    await ExecuteReadLoop(async () => await client.ReadInputRegistersAsync(addr, cnt), values => RenderRegisterValues(addr, values, output), output);
+                    var ranges = ParseReadRanges(readInputSpec, readCountDefault);
+                    await ExecuteReadLoop(ranges, range => client.ReadInputRegistersAsync(range.Address, range.Count), (range, values) => RenderRegisterValues(range.Address, values, output), output);
                     return;
                 }
 
                 if (context.ParseResult.GetValueForOption(readRefOption) is { } readRefSpec)
                 {
-                    var resolved = ParseReferenceSpec(readRefSpec, readCountDefault);
-                    switch (resolved.ReferenceType)
+                    var referenceRanges = ParseReferenceRanges(readRefSpec, readCountDefault);
+                    if (referenceRanges.Count == 0)
+                    {
+                        throw new ArgumentException("Reference specification did not define any ranges.");
+                    }
+
+                    switch (referenceRanges[0].ReferenceType)
                     {
                         case ReferenceType.Coil:
-                            await ExecuteReadLoop(async () => await client.ReadCoilsAsync(resolved.Address, resolved.Count), values => RenderBoolValues(resolved.Address, values, output), output);
+                            await ExecuteReadLoop(referenceRanges, range => client.ReadCoilsAsync(range.Address, range.Count), (range, values) => RenderBoolValues(range.Address, values, output), output);
                             break;
                         case ReferenceType.Discrete:
-                            await ExecuteReadLoop(async () => await client.ReadDiscreteInputsAsync(resolved.Address, resolved.Count), values => RenderBoolValues(resolved.Address, values, output), output);
+                            await ExecuteReadLoop(referenceRanges, range => client.ReadDiscreteInputsAsync(range.Address, range.Count), (range, values) => RenderBoolValues(range.Address, values, output), output);
                             break;
                         case ReferenceType.InputRegister:
-                            await ExecuteReadLoop(async () => await client.ReadInputRegistersAsync(resolved.Address, resolved.Count), values => RenderRegisterValues(resolved.Address, values, output), output);
+                            await ExecuteReadLoop(referenceRanges, range => client.ReadInputRegistersAsync(range.Address, range.Count), (range, values) => RenderRegisterValues(range.Address, values, output), output);
                             break;
                         case ReferenceType.HoldingRegister:
-                            await ExecuteReadLoop(async () => await client.ReadHoldingRegistersAsync(resolved.Address, resolved.Count), values => RenderRegisterValues(resolved.Address, values, output), output);
+                            await ExecuteReadLoop(referenceRanges, range => client.ReadHoldingRegistersAsync(range.Address, range.Count), (range, values) => RenderRegisterValues(range.Address, values, output), output);
                             break;
                     }
 
@@ -344,47 +352,189 @@ public static class FlatCommandMode
         return EndpointResolver.Resolve(options);
     }
 
-    private static (ushort Address, ushort Count) ParseReadSpec(string spec, ushort fallbackCount)
+    internal static IReadOnlyList<ReadRange> ParseReadRanges(string spec, ushort fallbackCount)
     {
-        var parts = spec.Split(':', StringSplitOptions.TrimEntries);
-        if (parts.Length == 1)
+        if (string.IsNullOrWhiteSpace(spec))
         {
-            return (ParseWord(parts[0]), fallbackCount);
+            throw new ArgumentException("SPEC is required.", nameof(spec));
         }
 
-        if (parts.Length == 2)
+        if (fallbackCount == 0)
         {
-            return (ParseWord(parts[0]), ParseWord(parts[1]));
+            throw new ArgumentException("--count must be at least 1.", nameof(fallbackCount));
         }
 
-        throw new ArgumentException($"Invalid SPEC format '{spec}'. Use ADDR or ADDR:COUNT.");
+        var tokens = spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+        {
+            throw new ArgumentException($"Invalid specification '{spec}'.", nameof(spec));
+        }
+
+        var addresses = new SortedSet<ushort>();
+        foreach (var token in tokens)
+        {
+            foreach (var address in ExpandRangeToken(token, fallbackCount))
+            {
+                addresses.Add(address);
+            }
+        }
+
+        if (addresses.Count == 0)
+        {
+            throw new ArgumentException($"Invalid specification '{spec}'.", nameof(spec));
+        }
+
+        var ranges = new List<ReadRange>();
+        ushort? rangeStart = null;
+        ushort rangeEnd = 0;
+
+        foreach (var address in addresses)
+        {
+            if (rangeStart is null)
+            {
+                rangeStart = address;
+                rangeEnd = address;
+                continue;
+            }
+
+            var nextExpected = (uint)rangeEnd + 1;
+            if (nextExpected <= ushort.MaxValue && address == nextExpected)
+            {
+                rangeEnd = address;
+                continue;
+            }
+
+            ranges.Add(new ReadRange(rangeStart.Value, (ushort)(rangeEnd - rangeStart.Value + 1)));
+            rangeStart = address;
+            rangeEnd = address;
+        }
+
+        if (rangeStart is not null)
+        {
+            ranges.Add(new ReadRange(rangeStart.Value, (ushort)(rangeEnd - rangeStart.Value + 1)));
+        }
+
+        return ranges;
     }
 
-    private static ReferenceReadRequest ParseReferenceSpec(string spec, ushort fallbackCount)
+    private static IReadOnlyList<ReferenceReadRequest> ParseReferenceRanges(string spec, ushort fallbackCount)
     {
-        var (reference, count) = ParseReadSpec(spec, fallbackCount);
-
-        if (reference >= 1 && reference <= 9999)
+        var ranges = ParseReadRanges(spec, fallbackCount);
+        if (ranges.Count == 0)
         {
-            return new ReferenceReadRequest(ReferenceType.Coil, (ushort)(reference - 1), count);
+            return ranges;
         }
 
-        if (reference >= 10001 && reference <= 19999)
+        ReferenceType? detectedType = null;
+        var resolved = new List<ReferenceReadRequest>(ranges.Count);
+
+        foreach (var range in ranges)
         {
-            return new ReferenceReadRequest(ReferenceType.Discrete, (ushort)(reference - 10001), count);
+            var startReference = range.Address;
+            var endReference = (uint)range.Address + range.Count - 1;
+
+            var referenceType = DetermineReferenceType(startReference);
+            var endType = DetermineReferenceType((ushort)endReference);
+            if (referenceType != endType)
+            {
+                throw new ArgumentException("Reference ranges must not span multiple Modicon reference types.");
+            }
+
+            if (detectedType is null)
+            {
+                detectedType = referenceType;
+            }
+            else if (detectedType != referenceType)
+            {
+                throw new ArgumentException("All reference ranges must target the same Modicon reference type.");
+            }
+
+            var zeroBasedAddress = referenceType switch
+            {
+                ReferenceType.Coil => (ushort)(startReference - 1),
+                ReferenceType.Discrete => (ushort)(startReference - 10001),
+                ReferenceType.InputRegister => (ushort)(startReference - 30001),
+                ReferenceType.HoldingRegister => (ushort)(startReference - 40001),
+                _ => throw new InvalidOperationException($"Unsupported reference type {referenceType}.")
+            };
+
+            resolved.Add(new ReferenceReadRequest(referenceType, zeroBasedAddress, range.Count));
         }
 
-        if (reference >= 30001 && reference <= 39999)
+        return resolved;
+    }
+
+    private static IEnumerable<ushort> ExpandRangeToken(string token, ushort fallbackCount)
+    {
+        var trimmed = token.Trim();
+        if (trimmed.Length == 0)
         {
-            return new ReferenceReadRequest(ReferenceType.InputRegister, (ushort)(reference - 30001), count);
+            yield break;
         }
 
-        if (reference >= 40001 && reference <= 49999)
+        if (trimmed.Contains(':'))
         {
-            return new ReferenceReadRequest(ReferenceType.HoldingRegister, (ushort)(reference - 40001), count);
+            var parts = trimmed.Split(new[] { ':' }, 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1]))
+            {
+                throw new ArgumentException($"Invalid range token '{token}'.", nameof(token));
+            }
+
+            var start = ParseWord(parts[0]);
+            var count = ParseWord(parts[1]);
+            if (count == 0)
+            {
+                throw new ArgumentException($"Range '{token}' must specify a count of at least 1.", nameof(token));
+            }
+
+            var end = (uint)start + count - 1;
+            if (end > ushort.MaxValue)
+            {
+                throw new ArgumentException($"Range '{token}' exceeds the address space.", nameof(token));
+            }
+
+            for (uint value = start; value <= end; value++)
+            {
+                yield return (ushort)value;
+            }
+
+            yield break;
         }
 
-        throw new ArgumentException($"Unsupported reference range: {reference}");
+        if (trimmed.Contains('-'))
+        {
+            var parts = trimmed.Split(new[] { '-' }, 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1]))
+            {
+                throw new ArgumentException($"Invalid range token '{token}'.", nameof(token));
+            }
+
+            var start = ParseWord(parts[0]);
+            var end = ParseWord(parts[1]);
+            if (end < start)
+            {
+                throw new ArgumentException($"Range '{token}' end must not be less than its start.", nameof(token));
+            }
+
+            for (uint value = start; value <= end; value++)
+            {
+                yield return (ushort)value;
+            }
+
+            yield break;
+        }
+
+        var single = ParseWord(trimmed);
+        var endInclusive = (uint)single + fallbackCount - 1;
+        if (endInclusive > ushort.MaxValue)
+        {
+            throw new ArgumentException($"Range '{token}' exceeds the address space.", nameof(token));
+        }
+
+        for (uint value = single; value <= endInclusive; value++)
+        {
+            yield return (ushort)value;
+        }
     }
 
     private static ushort ParseWord(string value)
@@ -587,16 +737,26 @@ public static class FlatCommandMode
             MonitorIntervalSeconds: monitorSeconds);
     }
 
-    private static async Task ExecuteReadLoop<T>(
-        Func<Task<T>> readFunc,
-        Action<T> render,
+    private static async Task ExecuteReadLoop<TRange, TResult>(
+        IReadOnlyList<TRange> ranges,
+        Func<TRange, Task<TResult>> readFunc,
+        Action<TRange, TResult> render,
         OutputOptions output)
     {
+        if (ranges.Count == 0)
+        {
+            return;
+        }
+
         var interval = output.MonitorIntervalSeconds ?? output.WatchIntervalSeconds;
         if (interval is null)
         {
-            var result = await readFunc();
-            render(result);
+            foreach (var range in ranges)
+            {
+                var result = await readFunc(range);
+                render(range, result);
+            }
+
             return;
         }
 
@@ -611,8 +771,6 @@ public static class FlatCommandMode
 
         while (!cancellationTokenSource.IsCancellationRequested)
         {
-            var result = await readFunc();
-
             if (output.MonitorIntervalSeconds is not null)
             {
                 Console.Clear();
@@ -621,7 +779,13 @@ public static class FlatCommandMode
             var originalOut = Console.Out;
             using var buffer = new StringWriter();
             Console.SetOut(buffer);
-            render(result);
+
+            foreach (var range in ranges)
+            {
+                var result = await readFunc(range);
+                render(range, result);
+            }
+
             Console.SetOut(originalOut);
 
             var lines = buffer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
@@ -777,6 +941,31 @@ public static class FlatCommandMode
         return bytes;
     }
 
+    private static ReferenceType DetermineReferenceType(ushort reference)
+    {
+        if (reference >= 1 && reference <= 9999)
+        {
+            return ReferenceType.Coil;
+        }
+
+        if (reference >= 10001 && reference <= 19999)
+        {
+            return ReferenceType.Discrete;
+        }
+
+        if (reference >= 30001 && reference <= 39999)
+        {
+            return ReferenceType.InputRegister;
+        }
+
+        if (reference >= 40001 && reference <= 49999)
+        {
+            return ReferenceType.HoldingRegister;
+        }
+
+        throw new ArgumentException($"Unsupported reference range: {reference}");
+    }
+
     private enum ReferenceType
     {
         Coil,
@@ -786,6 +975,8 @@ public static class FlatCommandMode
     }
 
     private sealed record ReferenceReadRequest(ReferenceType ReferenceType, ushort Address, ushort Count);
+
+    internal sealed record ReadRange(ushort Address, ushort Count);
 
     private sealed record OutputOptions(
         bool ShowBool,
