@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.2-rc](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.1...v2.2.2-rc) (2026-02-17)
+
+
+### Bug Fixes
+
+* Added test file ([6fdbc43](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/6fdbc43e37e4b4c81ffac569884062e600ae5fb1))
+* prevent -rh null reference by decoding holding registers from Data ([9a6756d](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/9a6756defe8f28e16e7c1abf6a8a90c839904c80))
+* prevent null-reference failures on register reads ([24a665c](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/24a665c821abee0f5de444dcd28379a1fa761298))
+
 ## [2.2.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.0...v2.2.1) (2026-02-14)
 
 
