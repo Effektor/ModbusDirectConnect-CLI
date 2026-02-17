@@ -7,19 +7,18 @@ on:
   workflow_dispatch:
 
 env:
+  DOTNET_INSTALL_DIR: $RUNNER_TOOL_CACHE/dotnet
+  DOTNET_ROOT: $RUNNER_TOOL_CACHE/dotnet
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
   DOTNET_NOLOGO: true
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build and Test
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: read
       packages: read
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
     - name: Checkout code

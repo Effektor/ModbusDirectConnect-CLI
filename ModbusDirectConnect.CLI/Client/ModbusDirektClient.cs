@@ -36,61 +36,116 @@ public sealed class ModbusDirektClient : IModbusClient
 
     public Task<bool[]> ReadCoilsAsync(ushort startAddress, ushort count)
     {
-        var coils = _client.ReadCoils(startAddress, count);
-        var result = new bool[count];
-
-        for (var i = 0; i < count; i++)
+        try
         {
-            result[i] = coils[i];
-        }
+            var coils = _client.ReadCoils(startAddress, count);
+            if (coils is null)
+            {
+                throw CreateInvalidReadResponseException("coils");
+            }
 
-        return Task.FromResult(result);
+            var result = new bool[count];
+
+            for (var i = 0; i < count; i++)
+            {
+                result[i] = coils[i];
+            }
+
+            return Task.FromResult(result);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            throw CreateInvalidReadResponseException("coils", ex);
+        }
     }
 
     public Task<bool[]> ReadDiscreteInputsAsync(ushort startAddress, ushort count)
     {
-        var inputs = _client.ReadDiscreteInputs(startAddress, count);
-        var result = new bool[count];
-
-        for (var i = 0; i < count; i++)
+        try
         {
-            result[i] = inputs[i];
-        }
+            var inputs = _client.ReadDiscreteInputs(startAddress, count);
+            if (inputs is null)
+            {
+                throw CreateInvalidReadResponseException("discrete inputs");
+            }
 
-        return Task.FromResult(result);
+            var result = new bool[count];
+
+            for (var i = 0; i < count; i++)
+            {
+                result[i] = inputs[i];
+            }
+
+            return Task.FromResult(result);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            throw CreateInvalidReadResponseException("discrete inputs", ex);
+        }
     }
 
     public Task<ushort[]> ReadHoldingRegistersAsync(ushort startAddress, ushort count)
     {
-        var registers = _client.ReadHoldingRegisters(startAddress, count);
-        var result = new ushort[count];
-
-        for (var i = 0; i < count; i++)
+        try
         {
-            result[i] = unchecked((ushort)registers[i]);
-        }
+            var registers = _client.ReadHoldingRegisters(startAddress, count);
+            if (registers?.Data is null)
+            {
+                throw CreateInvalidReadResponseException("holding registers");
+            }
 
-        return Task.FromResult(result);
+            var bytes = registers.Data;
+            var result = new ushort[count];
+
+            for (var i = 0; i < count; i++)
+            {
+                var index = i * 2;
+                if (index + 1 >= bytes.Length)
+                {
+                    break;
+                }
+
+                result[i] = (ushort)((bytes[index] << 8) | bytes[index + 1]);
+            }
+
+            return Task.FromResult(result);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            throw CreateInvalidReadResponseException("holding registers", ex);
+        }
     }
 
     public Task<ushort[]> ReadInputRegistersAsync(ushort startAddress, ushort count)
     {
-        var inputRegisters = _client.ReadInputRegisters(startAddress, count);
-        var bytes = inputRegisters.Data;
-        var result = new ushort[count];
-
-        for (var i = 0; i < count; i++)
+        try
         {
-            var index = i * 2;
-            if (index + 1 >= bytes.Length)
+            var inputRegisters = _client.ReadInputRegisters(startAddress, count);
+            if (inputRegisters?.Data is null)
             {
-                break;
+                throw CreateInvalidReadResponseException("input registers");
             }
 
-            result[i] = (ushort)((bytes[index] << 8) | bytes[index + 1]);
-        }
+            var bytes = inputRegisters.Data;
+            var result = new ushort[count];
 
-        return Task.FromResult(result);
+            for (var i = 0; i < count; i++)
+            {
+                var index = i * 2;
+                if (index + 1 >= bytes.Length)
+                {
+                    break;
+                }
+
+                result[i] = (ushort)((bytes[index] << 8) | bytes[index + 1]);
+            }
+
+            return Task.FromResult(result);
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            throw CreateInvalidReadResponseException("input registers", ex);
+        }
     }
 
     public Task WriteSingleCoilAsync(ushort address, bool value)
@@ -202,5 +257,12 @@ public sealed class ModbusDirektClient : IModbusClient
         }
 
         return SerialPortFlavor.Auto;
+    }
+
+    internal static InvalidOperationException CreateInvalidReadResponseException(string operation, Exception? innerException = null)
+    {
+        return new InvalidOperationException(
+            $"Read {operation} failed due to an invalid or incomplete response from the Modbus runtime.",
+            innerException);
     }
 }

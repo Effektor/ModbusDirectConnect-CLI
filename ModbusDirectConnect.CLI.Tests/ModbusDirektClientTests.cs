@@ -119,6 +119,24 @@ public class ModbusDirektClientTests
         Assert.Contains("Invalid --databits", ex.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void CreateInvalidReadResponseException_IncludesOperationName()
+    {
+        var ex = ModbusDirektClient.CreateInvalidReadResponseException("holding registers");
+
+        Assert.Contains("holding registers", ex.Message, StringComparison.Ordinal);
+        Assert.Null(ex.InnerException);
+    }
+
+    [Fact]
+    public void CreateInvalidReadResponseException_RetainsInnerException()
+    {
+        var inner = new NullReferenceException("simulated library null");
+        var ex = ModbusDirektClient.CreateInvalidReadResponseException("holding registers", inner);
+
+        Assert.Same(inner, ex.InnerException);
+    }
+
     private static object GetInnerModbusClient(ModbusDirektClient client)
     {
         var field = typeof(ModbusDirektClient).GetField("_client", BindingFlags.NonPublic | BindingFlags.Instance);
