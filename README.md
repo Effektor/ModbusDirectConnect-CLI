@@ -32,6 +32,14 @@ sudo ln -sf /usr/local/lib/mbdc/mbdc /usr/local/bin/mbdc
 mbdc --version
 ```
 
+Debian/Ubuntu package install:
+```bash
+sudo dpkg -i mbdc_<version>_amd64.deb
+```
+
+When installed from the `.deb`, bash completion is installed automatically to:
+`/usr/share/bash-completion/completions/mbdc`
+
 ### macOS
 ```bash
 tar -xzf mbdc-macos-x64.tar.gz

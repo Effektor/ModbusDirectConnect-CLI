@@ -1,0 +1,82 @@
+# bash completion for mbdc
+_mbdc()
+{
+    local cur prev
+    COMPREPLY=()
+
+    if declare -F _init_completion >/dev/null 2>&1; then
+        _init_completion -n : || return
+    else
+        cur="${COMP_WORDS[COMP_CWORD]}"
+        prev="${COMP_WORDS[COMP_CWORD-1]}"
+    fi
+
+    local option_flags="
+--help -h --version
+--target -T --host -H --port -p --unit -u --slave -s --timeout -t --retries --protocol -P
+--serial --serial-port --baud --parity --databits --data-bits --stopbits --stop-bits
+--tcp --rtu --ascii
+--read-coil -rc --rc --read-discrete -rd --rd --read-holding -rh --rh --read-inputreg -ri --ri --ref
+--write-coil -wc --wc --write-reg -wr --wr --write-multi-coil -wmc --wmc --write-multi-reg -wmr --wmr
+--count -c --data -d --value --on --off --raw16 --raw-bytes --bits --bytes
+--u16 --s16 --u32 --s32 --f32 --f64
+--be --le --little-endian --ws --word-swap --bs --byte-swap
+--string --string-len --null-term --encoding
+--bool --hex
+--watch --monitor --diff --only-changed --group --scan
+--quiet -q --json --no-color --timestamp
+-v -vv -vvv
+"
+
+    case "$prev" in
+        --protocol|-P)
+            COMPREPLY=( $(compgen -W "tcp rtu-tcp rtu-serial" -- "$cur") )
+            return
+            ;;
+        --parity)
+            COMPREPLY=( $(compgen -W "N E O n e o none even odd" -- "$cur") )
+            return
+            ;;
+        --databits|--data-bits)
+            COMPREPLY=( $(compgen -W "7 8" -- "$cur") )
+            return
+            ;;
+        --stopbits|--stop-bits)
+            COMPREPLY=( $(compgen -W "1 2" -- "$cur") )
+            return
+            ;;
+        --scan)
+            COMPREPLY=( $(compgen -W "u16 s16 u32 s32 f32 f64" -- "$cur") )
+            return
+            ;;
+        --serial|--serial-port)
+            local tty_devices
+            tty_devices="$(compgen -G "/dev/tty*" 2>/dev/null)"
+            COMPREPLY=( $(compgen -W "$tty_devices" -- "$cur") )
+            return
+            ;;
+    esac
+
+    if [[ "$prev" == "--watch" || "$prev" == "--monitor" ]]; then
+        if [[ "$cur" != -* ]]; then
+            COMPREPLY=( $(compgen -W "0.1 0.25 0.5 1 2 5" -- "$cur") )
+            return
+        fi
+    fi
+
+    if [[ "$prev" == "--target" || "$prev" == "-T" || "$prev" == "--host" || "$prev" == "-H" ]]; then
+        COMPREPLY=( $(compgen -A hostname -- "$cur") )
+        return
+    fi
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "$option_flags" -- "$cur") )
+        return
+    fi
+
+    if [[ ${COMP_CWORD} -eq 1 ]]; then
+        COMPREPLY=( $(compgen -A hostname -- "$cur") )
+    fi
+}
+
+complete -F _mbdc mbdc

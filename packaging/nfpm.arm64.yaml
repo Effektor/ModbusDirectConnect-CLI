@@ -17,3 +17,7 @@ contents:
     dst: /usr/bin/libSystem.IO.Ports.Native.so
     file_info:
       mode: 0755
+  - src: packaging/bash-completion/mbdc
+    dst: /usr/share/bash-completion/completions/mbdc
+    file_info:
+      mode: 0644
