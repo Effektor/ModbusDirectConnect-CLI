@@ -117,6 +117,62 @@ jobs:
             --output ./publish/${{ matrix.rid }} \
             -p:PublishSingleFile=true
 
+      - name: Verify binary architecture signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! command -v file >/dev/null 2>&1; then
+            echo "::error::The 'file' utility is required to validate binary architecture signatures."
+            exit 1
+          fi
+
+          binary="./publish/${{ matrix.rid }}/${{ matrix.binary_name }}"
+          if [ ! -f "${binary}" ]; then
+            echo "::error::Expected binary not found: ${binary}"
+            exit 1
+          fi
+
+          case "${{ matrix.rid }}" in
+            linux-x64)
+              expected_binary_pattern='ELF 64-bit.*x86-64'
+              expected_native_pattern='ELF 64-bit.*x86-64'
+              ;;
+            linux-arm64)
+              expected_binary_pattern='ELF 64-bit.*(ARM aarch64|aarch64)'
+              expected_native_pattern='ELF 64-bit.*(ARM aarch64|aarch64)'
+              ;;
+            win-x64)
+              expected_binary_pattern='PE32\+ executable.*x86-64'
+              expected_native_pattern=''
+              ;;
+            osx-x64)
+              expected_binary_pattern='Mach-O 64-bit.*x86_64'
+              expected_native_pattern=''
+              ;;
+            *)
+              echo "::error::No architecture signature check configured for RID '${{ matrix.rid }}'."
+              exit 1
+              ;;
+          esac
+
+          binary_signature="$(file -b "${binary}")"
+          echo "Binary signature (${binary}): ${binary_signature}"
+          if ! echo "${binary_signature}" | grep -Eiq "${expected_binary_pattern}"; then
+            echo "::error::Binary signature mismatch for RID '${{ matrix.rid }}'. Expected pattern: ${expected_binary_pattern}"
+            exit 1
+          fi
+
+          native_lib="./publish/${{ matrix.rid }}/libSystem.IO.Ports.Native.so"
+          if [ -n "${expected_native_pattern}" ] && [ -f "${native_lib}" ]; then
+            native_signature="$(file -b "${native_lib}")"
+            echo "Native signature (${native_lib}): ${native_signature}"
+            if ! echo "${native_signature}" | grep -Eiq "${expected_native_pattern}"; then
+              echo "::error::Native library signature mismatch for RID '${{ matrix.rid }}'. Expected pattern: ${expected_native_pattern}"
+              exit 1
+            fi
+          fi
+
       - name: Prepare Linux package input
         if: matrix.deb_arch != ''
         shell: bash
