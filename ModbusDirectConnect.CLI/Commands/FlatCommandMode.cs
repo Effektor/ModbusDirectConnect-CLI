@@ -422,7 +422,7 @@ public static class FlatCommandMode
         var ranges = ParseReadRanges(spec, fallbackCount);
         if (ranges.Count == 0)
         {
-            return ranges;
+            return Array.Empty<ReferenceReadRequest>();
         }
 
         ReferenceType? detectedType = null;
