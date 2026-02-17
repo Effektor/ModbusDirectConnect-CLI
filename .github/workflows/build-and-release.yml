@@ -7,6 +7,8 @@ on:
   workflow_dispatch:
 
 env:
+  DOTNET_INSTALL_DIR: $RUNNER_TOOL_CACHE/dotnet
+  DOTNET_ROOT: $RUNNER_TOOL_CACHE/dotnet
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
   DOTNET_NOLOGO: true
 
