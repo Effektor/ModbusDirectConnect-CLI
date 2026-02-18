@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.2](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.2-rc...v2.2.2) (2026-02-18)
+
+
+### Miscellaneous Chores
+
+* release v2.2.2 ([99c8f6a](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/99c8f6a28290b21720a68999aaafa0aec4061e42))
+
 ## [2.2.2-rc](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.1...v2.2.2-rc) (2026-02-17)
 
 
