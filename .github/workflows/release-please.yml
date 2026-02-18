@@ -29,6 +29,7 @@ jobs:
       release_created: ${{ steps.release_outputs.outputs.release_created }}
       tag_name: ${{ steps.release_outputs.outputs.tag_name }}
       version: ${{ steps.release_outputs.outputs.version }}
+      stable_release: ${{ steps.release_channel.outputs.stable_release }}
     steps:       
       - name: Run release-please
         id: release_gh        
@@ -55,6 +56,32 @@ jobs:
           echo "release_created=${release_created}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Determine release channel
+        id: release_channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_created="${{ steps.release_outputs.outputs.release_created }}"
+          tag_name="${{ steps.release_outputs.outputs.tag_name }}"
+          version="${{ steps.release_outputs.outputs.version }}"
+          stable_release="false"
+
+          if [ "${release_created}" = "true" ] \
+            && [[ "${tag_name}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            && [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            is_prerelease="$(gh release view "${tag_name}" --json isPrerelease --jq .isPrerelease 2>/dev/null || echo true)"
+            is_draft="$(gh release view "${tag_name}" --json isDraft --jq .isDraft 2>/dev/null || echo true)"
+
+            if [ "${is_prerelease}" = "false" ] && [ "${is_draft}" = "false" ]; then
+              stable_release="true"
+            fi
+          fi
+
+          echo "stable_release=${stable_release}" >> "${GITHUB_OUTPUT}"
 
   publish-cli:
     name: Publish CLI (${{ matrix.rid }})
@@ -313,3 +340,158 @@ jobs:
             "${deb_files[@]}" \
             ./release-assets/ModbusDirectConnect-PowerShell.zip \
             --clobber
+
+  publish-powershell-gallery:
+    name: Publish PowerShell Module to PSGallery
+    needs: [release-please, upload-release-assets]
+    if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_PSGALLERY_PUBLISH == 'true'
+    runs-on: [self-hosted, linux, x64]
+    permissions:
+      contents: read
+    steps:
+      - name: Download PowerShell module asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ./dist
+          gh release download "${RELEASE_TAG}" \
+            -p "ModbusDirectConnect-PowerShell.zip" \
+            -D ./dist
+
+      - name: Extract module package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ./dist/module
+          unzip -q ./dist/ModbusDirectConnect-PowerShell.zip -d ./dist/module
+          test -f ./dist/module/ModbusDirectConnect/ModbusDirectConnect.psd1
+
+      - name: Publish module to PSGallery
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
+            throw "PSGALLERY_API_KEY secret is required to publish to PSGallery."
+          }
+
+          if (-not (Get-Command Publish-Module -ErrorAction SilentlyContinue)) {
+            Install-PackageProvider -Name NuGet -Scope CurrentUser -Force
+            Install-Module PowerShellGet -Scope CurrentUser -Force -AllowClobber
+            Import-Module PowerShellGet -Force
+          }
+
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+
+          $modulePath = Join-Path $PWD 'dist/module/ModbusDirectConnect'
+          $manifestPath = Join-Path $modulePath 'ModbusDirectConnect.psd1'
+          $manifest = Import-PowerShellDataFile -Path $manifestPath
+          $moduleVersion = $manifest.ModuleVersion.ToString()
+          if ($moduleVersion -ne $env:RELEASE_VERSION) {
+            throw "Module version mismatch. Manifest=$moduleVersion release=$($env:RELEASE_VERSION)"
+          }
+
+          Publish-Module -Path $modulePath -Repository PSGallery -NuGetApiKey $env:PSGALLERY_API_KEY
+
+  publish-chocolatey:
+    name: Publish Chocolatey Package
+    needs: [release-please, upload-release-assets]
+    if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_CHOCOLATEY_PUBLISH == 'true'
+    runs-on: [self-hosted, linux, x64]
+    permissions:
+      contents: read
+    env:
+      CHOCO_API: ${{ secrets.CHOCO_API }}
+    steps:
+      - name: Validate Chocolatey API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CHOCO_API}" ]; then
+            echo "::error::CHOCO_API secret is required to publish to Chocolatey."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Windows release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ./dist
+          gh release download "${RELEASE_TAG}" \
+            -p "mbdc-windows-x64.zip" \
+            -D ./dist
+
+      - name: Setup NuGet CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet tool update --global NuGet.CommandLine --version 6.*
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Build Chocolatey package
+        env:
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          zip_path="./dist/mbdc-windows-x64.zip"
+          checksum="$(sha256sum "${zip_path}" | awk '{print tolower($1)}')"
+          asset_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/mbdc-windows-x64.zip"
+
+          rm -rf ./choco
+          cp -R ./packaging/chocolatey ./choco
+
+          sed "s/{{VERSION}}/${RELEASE_VERSION}/g" \
+            ./choco/mbdc.nuspec.template > ./choco/mbdc.nuspec
+          rm ./choco/mbdc.nuspec.template
+
+          sed \
+            -e "s#{{URL64}}#${asset_url}#g" \
+            -e "s#{{CHECKSUM64}}#${checksum}#g" \
+            ./choco/tools/chocolateyinstall.ps1 > ./choco/tools/chocolateyinstall.ps1.rendered
+          mv ./choco/tools/chocolateyinstall.ps1.rendered ./choco/tools/chocolateyinstall.ps1
+
+          nuget pack ./choco/mbdc.nuspec -OutputDirectory ./choco
+
+      - name: Push Chocolatey package
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="./choco/mbdc.${RELEASE_VERSION}.nupkg"
+          test -f "${package}"
+          nuget push "${package}" \
+            -Source "https://push.chocolatey.org/" \
+            -ApiKey "${CHOCO_API}" \
+            -NonInteractive
+
+  publish-deb-repo:
+    name: Publish Debian Packages to Repo (Disabled)
+    needs: [release-please, upload-release-assets]
+    if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_DEB_REPO_PUBLISH == 'true'
+    runs-on: [self-hosted, linux, x64]
+    permissions:
+      contents: read
+    steps:
+      - name: Placeholder
+        shell: bash
+        run: |
+          echo "Debian package repository publishing is not configured yet."
+          echo "This job is intentionally disabled by default."
+          exit 1
