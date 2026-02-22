@@ -149,25 +149,26 @@ public static class FlatCommandMode
                 return;
             }
 
+            ResolvedConnection? resolvedConnection = null;
             try
             {
-                var connection = ResolveConnection(context, global, tcpOption, rtuOption, asciiOption);
+                resolvedConnection = ResolveConnection(context, global, tcpOption, rtuOption, asciiOption);
                 var logger = new VerbosityLogger(context.ParseResult.GetValueForOption(global.VerbosityLevel));
-                logger.Log(1, $"Operation over {connection.Transport}");
-                logger.Log(2, $"Endpoint: {connection.DisplayTarget}, unit={connection.SlaveId}, timeout={connection.Timeout}ms");
-                logger.Log(3, $"Transport settings: baud={connection.SerialBaud}, dataBits={connection.SerialDataBits}, parity={connection.SerialParity}, stopBits={connection.SerialStopBits}");
+                logger.Log(1, $"Operation over {resolvedConnection.Transport}");
+                logger.Log(2, $"Endpoint: {resolvedConnection.DisplayTarget}, unit={resolvedConnection.SlaveId}, timeout={resolvedConnection.Timeout}ms");
+                logger.Log(3, $"Transport settings: baud={resolvedConnection.SerialBaud}, dataBits={resolvedConnection.SerialDataBits}, parity={resolvedConnection.SerialParity}, stopBits={resolvedConnection.SerialStopBits}");
 
-                using var client = ModbusClientFactory.CreateClient(connection);
+                using var client = ModbusClientFactory.CreateClient(resolvedConnection);
 
                 if (context.ParseResult.GetValueForOption(analyzeOption))
                 {
-                    await ExecuteAnalyzeMode(client);
+                    await ExecuteAnalyzeMode(client, resolvedConnection.Transport);
                     return;
                 }
 
                 if (context.ParseResult.GetValueForOption(scanOption) is { } scanIntervalSeconds)
                 {
-                    await ExecuteScanMode(client, scanIntervalSeconds);
+                    await ExecuteScanMode(client, resolvedConnection.Transport, scanIntervalSeconds);
                     return;
                 }
 
@@ -267,7 +268,8 @@ public static class FlatCommandMode
             }
             catch (Exception ex)
             {
-                context.Console.Error.Write($"Error ({ClassifyErrorCategory(ex)}): {FormatErrorMessage(ex)}\n");
+                var category = ClassifyErrorCategory(ex, resolvedConnection?.Transport);
+                context.Console.Error.Write($"Error ({DescribeErrorCategory(category)}): {FormatErrorMessage(ex)}\n");
                 context.ExitCode = 1;
             }
         });
@@ -592,10 +594,10 @@ public static class FlatCommandMode
             || target.StartsWith("com", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task ExecuteAnalyzeMode(IModbusClient client)
+    private static async Task ExecuteAnalyzeMode(IModbusClient client, TransportKind transportKind)
     {
         Console.WriteLine("Analyze mode: probing FC01-FC04 address spaces...");
-        var discoveredSpaces = await DiscoverAllAddressSpacesAsync(client);
+        var discoveredSpaces = await DiscoverAllAddressSpacesAsync(client, transportKind);
 
         Console.WriteLine();
         Console.WriteLine("Address-space summary:");
@@ -639,7 +641,7 @@ public static class FlatCommandMode
         }
     }
 
-    private static async Task ExecuteScanMode(IModbusClient client, double intervalSeconds)
+    private static async Task ExecuteScanMode(IModbusClient client, TransportKind transportKind, double intervalSeconds)
     {
         if (intervalSeconds <= 0)
         {
@@ -647,7 +649,7 @@ public static class FlatCommandMode
         }
 
         Console.WriteLine("Scan mode: probing FC01-FC04 address spaces...");
-        var discoveredSpaces = await DiscoverAllAddressSpacesAsync(client);
+        var discoveredSpaces = await DiscoverAllAddressSpacesAsync(client, transportKind);
 
         var states = new Dictionary<string, ScanState>(StringComparer.Ordinal);
         foreach (var space in discoveredSpaces.Where(s => s.MaxAddress >= 0))
@@ -711,18 +713,21 @@ public static class FlatCommandMode
         }
     }
 
-    private static async Task<IReadOnlyList<FunctionCodeSpace>> DiscoverAllAddressSpacesAsync(IModbusClient client)
+    private static async Task<IReadOnlyList<FunctionCodeSpace>> DiscoverAllAddressSpacesAsync(IModbusClient client, TransportKind transportKind)
     {
         var spaces = new List<FunctionCodeSpace>(FunctionCodeSpecs.Length);
         foreach (var spec in FunctionCodeSpecs)
         {
-            spaces.Add(await DiscoverAddressSpaceAsync(client, spec));
+            spaces.Add(await DiscoverAddressSpaceAsync(client, spec, transportKind));
         }
 
         return spaces;
     }
 
-    private static async Task<FunctionCodeSpace> DiscoverAddressSpaceAsync(IModbusClient client, FunctionCodeSpec spec)
+    private static async Task<FunctionCodeSpace> DiscoverAddressSpaceAsync(
+        IModbusClient client,
+        FunctionCodeSpec spec,
+        TransportKind transportKind)
     {
         var probeWindow = Math.Min(ProtocolLimits.InitialProbeWindow, spec.MaxReadCount);
         var stepSize = Math.Max(1, probeWindow / 2);
@@ -734,7 +739,7 @@ public static class FlatCommandMode
 
         while (probeUpperAddress <= ProtocolLimits.MaxAddress)
         {
-            var probe = await TryProbeReadUpToAsync(client, spec, probeUpperAddress, probeWindow);
+            var probe = await TryProbeReadUpToAsync(client, spec, probeUpperAddress, probeWindow, transportKind);
             WriteProbeProgress(spec, "step", probeUpperAddress, probe, probeWindow);
             if (probe.Success)
             {
@@ -770,7 +775,7 @@ public static class FlatCommandMode
         while (low <= high)
         {
             var mid = low + ((high - low) / 2);
-            var probe = await TryProbeReadUpToAsync(client, spec, mid, probeWindow);
+            var probe = await TryProbeReadUpToAsync(client, spec, mid, probeWindow, transportKind);
             WriteProbeProgress(spec, "bisect", mid, probe, probeWindow);
             if (probe.Success)
             {
@@ -799,29 +804,42 @@ public static class FlatCommandMode
         IModbusClient client,
         FunctionCodeSpec spec,
         int upperAddress,
-        int probeWindow)
+        int probeWindow,
+        TransportKind transportKind)
     {
         var startAddress = Math.Max(0, upperAddress - probeWindow + 1);
         var count = upperAddress - startAddress + 1;
         ValidateReadRange((ushort)startAddress, (ushort)count, spec.MaxReadCount, spec.CodeLabel);
 
-        try
+        ProbeFailure? lastFailure = null;
+        for (var attempt = 1; attempt <= ProbeMaxAttempts; attempt++)
         {
-            await spec.ProbeReadAsync(client, (ushort)startAddress, (ushort)count);
-            return new ProbeReadResult(startAddress, count, Success: true, FailureReason: null);
-        }
-        catch (Exception ex)
-        {
-            var category = ClassifyErrorCategory(ex);
-            if (category is not CliErrorCategory.ModbusDevice)
+            try
             {
-                throw new InvalidOperationException(
-                    $"Probe for {spec.CodeLabel} at start={startAddress}, count={count} failed due to {category} error.",
-                    ex);
+                await spec.ProbeReadAsync(client, (ushort)startAddress, (ushort)count);
+                return new ProbeReadResult(startAddress, count, Success: true, FailureReason: null);
             }
+            catch (Exception ex)
+            {
+                var category = ClassifyErrorCategory(ex, transportKind);
+                if (IsFatalProbeError(category))
+                {
+                    throw new InvalidOperationException(
+                        $"Probe for {spec.CodeLabel} at start={startAddress}, count={count} failed due to {DescribeErrorCategory(category)}.",
+                        ex);
+                }
 
-            return new ProbeReadResult(startAddress, count, Success: false, FailureReason: FormatErrorMessage(ex));
+                lastFailure = new ProbeFailure(category, FormatErrorMessage(ex));
+            }
         }
+
+        if (lastFailure is null)
+        {
+            throw new InvalidOperationException("Probe failed without a captured error.");
+        }
+
+        var reason = $"{DescribeErrorCategory(lastFailure.Category)}: {lastFailure.Message}";
+        return new ProbeReadResult(startAddress, count, Success: false, FailureReason: reason);
     }
 
     private static async Task<string[]> ReadAddressSpaceSnapshotAsync(
@@ -989,7 +1007,7 @@ public static class FlatCommandMode
     private static void WriteProbeProgress(FunctionCodeSpec spec, string phase, int upperAddress, ProbeReadResult probe, int window)
     {
         var status = probe.Success ? "ok" : $"fail ({probe.FailureReason})";
-        Console.WriteLine($"[{spec.CodeLabel}] {phase} upper={upperAddress} start={probe.StartAddress} count={probe.Count} window={window}: {status}");
+        Console.WriteLine($"[{spec.CodeLabel}] {phase} upper={upperAddress} start={probe.StartAddress} count={probe.Count} {spec.CountUnitLabel} window={window}: {status}");
     }
 
     private static string PadCell(string value, int width)
@@ -1007,19 +1025,30 @@ public static class FlatCommandMode
         return $"{value[..(width - 3)]}...";
     }
 
-    private static CliErrorCategory ClassifyErrorCategory(Exception ex)
+    private static CliErrorCategory ClassifyErrorCategory(Exception ex, TransportKind? transportKind)
     {
         var root = GetRootCause(ex);
         if (root is ModbusException modbusException)
         {
             return modbusException.ExceptionCode is 10 or 11
                 ? CliErrorCategory.Gateway
-                : CliErrorCategory.ModbusDevice;
+                : CliErrorCategory.Slave;
+        }
+
+        if (IsFrameLevelError(root))
+        {
+            return CliErrorCategory.ProtocolFrame;
         }
 
         if (root is TimeoutException or IOException or SocketException)
         {
-            return CliErrorCategory.Network;
+            return transportKind switch
+            {
+                TransportKind.RtuSerial => CliErrorCategory.SerialTransport,
+                TransportKind.RtuTcp => CliErrorCategory.RtuTcpTransport,
+                TransportKind.Tcp => CliErrorCategory.ModbusTcpTransport,
+                _ => CliErrorCategory.Transport
+            };
         }
 
         if (root is ArgumentException or FormatException or OverflowException)
@@ -1028,6 +1057,36 @@ public static class FlatCommandMode
         }
 
         return CliErrorCategory.Runtime;
+    }
+
+    private static bool IsFrameLevelError(Exception ex)
+    {
+        var message = ex.Message.Trim();
+        return message.Contains("invalid crc", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid frame", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid response", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("incomplete response", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFatalProbeError(CliErrorCategory category)
+    {
+        return category is CliErrorCategory.Parameter or CliErrorCategory.Runtime;
+    }
+
+    private static string DescribeErrorCategory(CliErrorCategory category)
+    {
+        return category switch
+        {
+            CliErrorCategory.Parameter => "Parameter",
+            CliErrorCategory.SerialTransport => "SerialTransport",
+            CliErrorCategory.ModbusTcpTransport => "ModbusTcpTransport",
+            CliErrorCategory.RtuTcpTransport => "RtuTcpTransport",
+            CliErrorCategory.Transport => "Transport",
+            CliErrorCategory.Gateway => "Gateway",
+            CliErrorCategory.Slave => "Slave",
+            CliErrorCategory.ProtocolFrame => "ProtocolFrame",
+            _ => "Runtime"
+        };
     }
 
     private static string FormatErrorMessage(Exception ex)
@@ -1344,14 +1403,17 @@ public static class FlatCommandMode
 
     private static readonly FunctionCodeSpec[] FunctionCodeSpecs =
     {
-        new("FC01", ProtocolLimits.MaxBitsPerRead, ProbeReadCoilsAsync, ReadCoilsAsStringsAsync),
-        new("FC02", ProtocolLimits.MaxBitsPerRead, ProbeReadDiscreteAsync, ReadDiscreteAsStringsAsync),
-        new("FC03", ProtocolLimits.MaxRegistersPerRead, ProbeReadHoldingAsync, ReadHoldingAsStringsAsync),
-        new("FC04", ProtocolLimits.MaxRegistersPerRead, ProbeReadInputAsync, ReadInputAsStringsAsync)
+        new("FC01", "bits", ProtocolLimits.MaxBitsPerRead, ProbeReadCoilsAsync, ReadCoilsAsStringsAsync),
+        new("FC02", "bits", ProtocolLimits.MaxBitsPerRead, ProbeReadDiscreteAsync, ReadDiscreteAsStringsAsync),
+        new("FC03", "registers", ProtocolLimits.MaxRegistersPerRead, ProbeReadHoldingAsync, ReadHoldingAsStringsAsync),
+        new("FC04", "registers", ProtocolLimits.MaxRegistersPerRead, ProbeReadInputAsync, ReadInputAsStringsAsync)
     };
+
+    private const int ProbeMaxAttempts = 3;
 
     private sealed record FunctionCodeSpec(
         string CodeLabel,
+        string CountUnitLabel,
         int MaxReadCount,
         Func<IModbusClient, ushort, ushort, Task> ProbeReadAsync,
         Func<IModbusClient, ushort, ushort, Task<string[]>> ReadValuesAsync);
@@ -1361,6 +1423,8 @@ public static class FlatCommandMode
     private sealed record FunctionCodeCapture(FunctionCodeSpace Space, string[] Values, bool[] VolatileMask);
 
     private sealed record ProbeReadResult(int StartAddress, int Count, bool Success, string? FailureReason);
+
+    private sealed record ProbeFailure(CliErrorCategory Category, string Message);
 
     private sealed class ScanState
     {
@@ -1388,9 +1452,13 @@ public static class FlatCommandMode
     private enum CliErrorCategory
     {
         Parameter,
-        Network,
+        SerialTransport,
+        ModbusTcpTransport,
+        RtuTcpTransport,
+        Transport,
         Gateway,
-        ModbusDevice,
+        Slave,
+        ProtocolFrame,
         Runtime
     }
 
