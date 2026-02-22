@@ -649,10 +649,7 @@ public static class FlatCommandMode
 
     private static async Task ExecuteScanMode(ResolvedConnection connection, double intervalSeconds)
     {
-        if (intervalSeconds <= 0)
-        {
-            throw new ArgumentException("--scan interval must be greater than 0.");
-        }
+        _ = intervalSeconds;
 
         using var client = ModbusClientFactory.CreateClient(connection);
         var states = FunctionCodeSpecs.ToDictionary(spec => spec.CodeLabel, spec => new ScanState(spec), StringComparer.Ordinal);
@@ -665,12 +662,21 @@ public static class FlatCommandMode
             cancellationTokenSource.Cancel();
         };
         var cancellationToken = cancellationTokenSource.Token;
+        var hotInterval = TimeSpan.FromSeconds(ScanHotIntervalSeconds);
+        var nextCycleDueAt = DateTimeOffset.UtcNow;
+        var coldRoundRobinIndex = 0;
 
         var cycle = -1;
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
+                var now = DateTimeOffset.UtcNow;
+                if (now < nextCycleDueAt)
+                {
+                    await Task.Delay(nextCycleDueAt - now, cancellationToken);
+                }
+
                 cycle++;
                 var changedNowByCode = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
                 var warnings = new List<string>();
@@ -695,34 +701,12 @@ public static class FlatCommandMode
 
                     if (state.MaxDiscoveredAddress > previousMaxAddress)
                     {
-                        state.NeedsColdSweep = true;
+                        state.NextColdChunkDueAt = DateTimeOffset.MinValue;
                     }
 
                     EnsureScanBufferSize(state, state.MaxDiscoveredAddress + 1);
                     var changedNow = new HashSet<int>();
-                    var shouldColdSweep = state.NeedsColdSweep
-                        || state.LastColdSweepCycle < 0
-                        || (cycle - state.LastColdSweepCycle) >= ScanColdSweepIntervalCycles;
-
-                    if (shouldColdSweep)
-                    {
-                        var sweep = await ReadAddressSpaceSnapshotAsync(
-                            client,
-                            spec,
-                            state.MaxDiscoveredAddress,
-                            cycle,
-                            showProgress: false,
-                            connection.Transport,
-                            cancellationToken);
-                        changedNow.UnionWith(ApplyScanSnapshot(state, sweep.Values));
-                        state.LastColdSweepCycle = cycle;
-                        state.NeedsColdSweep = false;
-                        if (sweep.UnreadableCellCount > 0)
-                        {
-                            warnings.Add($"[{spec.CodeLabel}] cold-sweep unreadable cells in cycle {cycle}: {sweep.UnreadableCellCount}");
-                        }
-                    }
-                    else if (state.ChangedEver.Count > 0)
+                    if (state.ChangedEver.Count > 0)
                     {
                         var hotRead = await ReadHotAddressesSnapshotAsync(client, state, connection.Transport, cancellationToken);
                         changedNow.UnionWith(ApplySparseScanSnapshot(state, hotRead.ValuesByAddress));
@@ -735,10 +719,45 @@ public static class FlatCommandMode
                     changedNowByCode[spec.CodeLabel] = changedNow;
                 }
 
+                var cycleNow = DateTimeOffset.UtcNow;
+                for (var offset = 0; offset < FunctionCodeSpecs.Length; offset++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var index = (coldRoundRobinIndex + offset) % FunctionCodeSpecs.Length;
+                    var spec = FunctionCodeSpecs[index];
+                    var state = states[spec.CodeLabel];
+
+                    if (state.MaxDiscoveredAddress < 0 || cycleNow < state.NextColdChunkDueAt)
+                    {
+                        continue;
+                    }
+
+                    var coldChunk = await ReadNextColdChunkAsync(client, state, connection.Transport, cycleNow, cancellationToken);
+                    if (!changedNowByCode.TryGetValue(spec.CodeLabel, out var changedNow))
+                    {
+                        changedNow = new HashSet<int>();
+                        changedNowByCode[spec.CodeLabel] = changedNow;
+                    }
+
+                    changedNow.UnionWith(coldChunk.ChangedNow);
+                    if (coldChunk.UnreadableCellCount > 0)
+                    {
+                        warnings.Add($"[{spec.CodeLabel}] cold-scan unreadable cells in cycle {cycle}: {coldChunk.UnreadableCellCount}");
+                    }
+
+                    coldRoundRobinIndex = (index + 1) % FunctionCodeSpecs.Length;
+                    break;
+                }
+
                 cancellationToken.ThrowIfCancellationRequested();
                 RenderScanDashboard(states, changedNowByCode, cycle, warnings);
 
-                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationToken);
+                nextCycleDueAt = nextCycleDueAt + hotInterval;
+                if (nextCycleDueAt < DateTimeOffset.UtcNow)
+                {
+                    nextCycleDueAt = DateTimeOffset.UtcNow;
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -919,6 +938,119 @@ public static class FlatCommandMode
         }
 
         return new HotReadResult(valuesByAddress, unreadableCellCount);
+    }
+
+    private static async Task<ColdChunkResult> ReadNextColdChunkAsync(
+        IModbusClient client,
+        ScanState state,
+        TransportKind transportKind,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (state.MaxDiscoveredAddress < 0)
+        {
+            state.NextColdChunkDueAt = now + TimeSpan.FromSeconds(ScanColdSweepTargetSeconds);
+            return new ColdChunkResult(new HashSet<int>(), 0);
+        }
+
+        var startAddress = FindNextUntrackedAddress(state, state.NextColdAddress, state.MaxDiscoveredAddress);
+        if (startAddress < 0)
+        {
+            state.NextColdAddress = 0;
+            state.NextColdChunkDueAt = now + TimeSpan.FromSeconds(ScanColdSweepTargetSeconds);
+            return new ColdChunkResult(new HashSet<int>(), 0);
+        }
+
+        var count = 1;
+        while (count < state.Spec.MaxReadCount)
+        {
+            var nextAddress = startAddress + count;
+            if (nextAddress > state.MaxDiscoveredAddress || state.ChangedEver.Contains(nextAddress))
+            {
+                break;
+            }
+
+            count++;
+        }
+
+        var chunk = await ReadSnapshotChunkWithRecoveryAsync(
+            client,
+            state.Spec,
+            startAddress,
+            count,
+            transportKind,
+            cancellationToken);
+
+        var valuesByAddress = new Dictionary<int, string>(count);
+        var unreadableCellCount = 0;
+        for (var offset = 0; offset < count; offset++)
+        {
+            var value = chunk.Values[offset];
+            if (string.Equals(value, SnapshotUnreadableValue, StringComparison.Ordinal))
+            {
+                unreadableCellCount++;
+                continue;
+            }
+
+            valuesByAddress[startAddress + offset] = value;
+        }
+
+        var changedNow = ApplySparseScanSnapshot(state, valuesByAddress);
+        state.NextColdAddress = startAddress + count;
+        if (state.NextColdAddress > state.MaxDiscoveredAddress)
+        {
+            state.NextColdAddress = 0;
+        }
+
+        state.NextColdChunkDueAt = now + GetColdChunkInterval(state);
+        return new ColdChunkResult(changedNow, unreadableCellCount);
+    }
+
+    private static int FindNextUntrackedAddress(ScanState state, int startAddress, int maxAddress)
+    {
+        if (maxAddress < 0)
+        {
+            return -1;
+        }
+
+        var boundedStart = Math.Clamp(startAddress, 0, maxAddress);
+        for (var address = boundedStart; address <= maxAddress; address++)
+        {
+            if (!state.ChangedEver.Contains(address))
+            {
+                return address;
+            }
+        }
+
+        for (var address = 0; address < boundedStart; address++)
+        {
+            if (!state.ChangedEver.Contains(address))
+            {
+                return address;
+            }
+        }
+
+        return -1;
+    }
+
+    private static TimeSpan GetColdChunkInterval(ScanState state)
+    {
+        if (state.MaxDiscoveredAddress < 0)
+        {
+            return TimeSpan.FromSeconds(ScanColdSweepTargetSeconds);
+        }
+
+        var trackedCount = state.ChangedEver.Count(address => address >= 0 && address <= state.MaxDiscoveredAddress);
+        var untrackedCount = Math.Max(0, (state.MaxDiscoveredAddress + 1) - trackedCount);
+        if (untrackedCount <= 0)
+        {
+            return TimeSpan.FromSeconds(ScanColdSweepTargetSeconds);
+        }
+
+        var chunkCount = (int)Math.Ceiling(untrackedCount / (double)state.Spec.MaxReadCount);
+        var secondsPerChunk = ScanColdSweepTargetSeconds / Math.Max(1, chunkCount);
+        return TimeSpan.FromSeconds(Math.Max(0.2, secondsPerChunk));
     }
 
     private static List<ReadRange> BuildReadRanges(IEnumerable<int> addresses, int maxAddress, int maxCountPerRead)
@@ -1833,7 +1965,8 @@ public static class FlatCommandMode
     private const int ProbeMaxAttempts = 3;
     private const int SnapshotReadMaxAttempts = 3;
     private const int ScanDiscoveryStepsPerCycle = 4;
-    private const int ScanColdSweepIntervalCycles = 5;
+    private const double ScanHotIntervalSeconds = 1.0;
+    private const double ScanColdSweepTargetSeconds = 10.0;
     private const string SnapshotUnreadableValue = "<read-error>";
 
     private sealed record FunctionCodeSpec(
@@ -1857,6 +1990,8 @@ public static class FlatCommandMode
 
     private sealed record HotReadResult(IReadOnlyDictionary<int, string> ValuesByAddress, int UnreadableCellCount);
 
+    private sealed record ColdChunkResult(HashSet<int> ChangedNow, int UnreadableCellCount);
+
     private sealed record ReadRange(int StartAddress, int Count);
 
     private sealed class ScanState
@@ -1878,9 +2013,9 @@ public static class FlatCommandMode
 
         public bool[] HasBaseline { get; set; } = Array.Empty<bool>();
 
-        public int LastColdSweepCycle { get; set; } = -1;
+        public int NextColdAddress { get; set; }
 
-        public bool NeedsColdSweep { get; set; } = true;
+        public DateTimeOffset NextColdChunkDueAt { get; set; } = DateTimeOffset.MinValue;
 
         public HashSet<int> ChangedEver { get; } = new();
     }
