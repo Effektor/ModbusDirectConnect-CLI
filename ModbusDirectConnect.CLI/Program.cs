@@ -66,7 +66,7 @@ internal static class Program
         var retriesOption = new Option<int>("--retries", () => 0, "Retries on timeout");
 
         var serialPortOption = new Option<string?>(new[] { "--serial-port", "--serial" }, "Serial device path or port name");
-        var serialBaudOption = new Option<int>("--baud", () => 19200, "Serial baud rate");
+        var serialBaudOption = new Option<int?>("--baud", "Serial baud rate (required for serial transport)");
         var serialDataBitsOption = new Option<int>(new[] { "--databits", "--data-bits" }, () => 8, "Serial data bits (7|8)");
         var serialParityOption = new Option<string>("--parity", () => "N", "Serial parity (N|E|O)");
         var serialStopBitsOption = new Option<string>(new[] { "--stopbits", "--stop-bits" }, () => "1", "Serial stop bits (1|2)");

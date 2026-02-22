@@ -66,4 +66,24 @@ public class EndpointResolverTests
 
         Assert.Equal(TransportKind.RtuTcp, resolved.Transport);
     }
+
+    [Fact]
+    public void Resolve_SerialWithoutBaud_ThrowsArgumentException()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => EndpointResolver.Resolve(new ConnectionOptions(
+            Target: "/dev/ttyUSB0",
+            Host: null,
+            Port: 502,
+            SlaveId: 1,
+            Timeout: 5000,
+            Retries: 0,
+            Protocol: "rtu-serial",
+            SerialPort: null,
+            SerialBaud: null,
+            SerialDataBits: 8,
+            SerialParity: "none",
+            SerialStopBits: "one")));
+
+        Assert.Contains("--baud", ex.Message, StringComparison.Ordinal);
+    }
 }

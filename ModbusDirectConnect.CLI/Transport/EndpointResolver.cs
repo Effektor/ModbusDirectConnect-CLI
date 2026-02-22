@@ -30,6 +30,11 @@ public static class EndpointResolver
             throw new ArgumentException("Serial transport requires a serial port target (e.g. COM3 or /dev/ttyUSB0) or --serial-port.");
         }
 
+        if (!options.SerialBaud.HasValue)
+        {
+            throw new ArgumentException("Serial transport requires --baud to be provided explicitly.");
+        }
+
         return new ResolvedConnection(
             Transport: TransportKind.RtuSerial,
             Host: null,

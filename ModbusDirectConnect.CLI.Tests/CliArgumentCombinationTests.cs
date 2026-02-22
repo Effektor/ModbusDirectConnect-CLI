@@ -74,6 +74,14 @@ public class CliArgumentCombinationTests
     }
 
     [Fact]
+    public void Invoke_FailsFast_WhenSerialWithoutBaud()
+    {
+        var root = Program.BuildRootCommand();
+        var exitCode = root.Invoke(ArgumentNormalizer.Normalize(new[] { "--serial", "/dev/ttyUSB0", "--read-coil", "0:8" }));
+        Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
     public void MilestoneTracker_CoversAllLongFlagsInHelpSpec()
     {
         var rootPath = FindRepositoryRoot();

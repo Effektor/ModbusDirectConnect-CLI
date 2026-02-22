@@ -9,7 +9,7 @@ public sealed record ConnectionOptions(
     int Retries,
     string? Protocol,
     string? SerialPort,
-    int SerialBaud,
+    int? SerialBaud,
     int SerialDataBits,
     string SerialParity,
     string SerialStopBits);

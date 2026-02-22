@@ -74,6 +74,26 @@ public class ModbusDirektClientTests
         Assert.Contains("Invalid --parity", ex.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Create_SerialRtu_RequiresBaud()
+    {
+        var connection = new ResolvedConnection(
+            Transport: TransportKind.RtuSerial,
+            Host: null,
+            Port: 502,
+            SerialPort: "COM3",
+            SlaveId: 1,
+            Timeout: 1000,
+            Retries: 0,
+            SerialBaud: null,
+            SerialDataBits: 8,
+            SerialParity: "N",
+            SerialStopBits: "1");
+
+        var ex = Assert.Throws<ArgumentException>(() => ModbusDirektClient.Create(connection));
+        Assert.Contains("--baud", ex.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("0")]
     [InlineData("1.5")]
