@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.0-rc](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.2...v2.3.0-rc) (2026-02-22)
+
+
+### Features
+
+* add analyze mode and live multi-FC scan dashboard ([198d728](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/198d728e4cbd4de77d2bf1e096cb8da83a98c924))
+* add analyze/scan modes and enforce read limits ([d0360cf](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/d0360cfa029c85cc8f7f011feffec9b86150c96b))
+
 ## [2.2.2](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.2...v2.2.2) (2026-02-18)
 
 
