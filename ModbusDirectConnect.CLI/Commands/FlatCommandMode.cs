@@ -1032,7 +1032,7 @@ public static class FlatCommandMode
         {
             return modbusException.ExceptionCode is 10 or 11
                 ? CliErrorCategory.Gateway
-                : CliErrorCategory.Slave;
+                : CliErrorCategory.ModbusDevice;
         }
 
         if (IsFrameLevelError(root))
@@ -1083,7 +1083,7 @@ public static class FlatCommandMode
             CliErrorCategory.RtuTcpTransport => "RtuTcpTransport",
             CliErrorCategory.Transport => "Transport",
             CliErrorCategory.Gateway => "Gateway",
-            CliErrorCategory.Slave => "Slave",
+            CliErrorCategory.ModbusDevice => "ModbusDevice",
             CliErrorCategory.ProtocolFrame => "ProtocolFrame",
             _ => "Runtime"
         };
@@ -1457,7 +1457,7 @@ public static class FlatCommandMode
         RtuTcpTransport,
         Transport,
         Gateway,
-        Slave,
+        ModbusDevice,
         ProtocolFrame,
         Runtime
     }
