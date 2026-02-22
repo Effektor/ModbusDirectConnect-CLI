@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0-rc.2](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.0-rc.1...v2.3.0-rc.2) (2026-02-22)
+
+
+### Features
+
+* add dual-rate scan polling for volatile addresses ([f88235d](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/f88235d5876edf71ee65638649407fddad4fa7e4))
+* make scan non-blocking with dual-rate polling ([4caed80](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/4caed806842187b5c6f6f2879ccb0d4e26a6e7c9))
+* require explicit --baud for serial transport ([4e2865b](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/4e2865ba7b905ee726fec176fbb71e4c975501db))
+* require explicit --baud for serial transport ([9836d23](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/9836d23ed325744b1fc57df4e71a9acd5d90771c))
+* run scan discovery in background and expand monitored ranges ([492410c](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/492410cea01574af371fed3654d36300e7e475e9))
+
+
+### Bug Fixes
+
+* use max FC probe windows and harden analyze/scan reads ([640829a](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/640829ae0044a642a6bf4fff4de5fe45c3388b2d))
+
 ## [2.3.0-rc.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.0-rc...v2.3.0-rc.1) (2026-02-22)
 
 
