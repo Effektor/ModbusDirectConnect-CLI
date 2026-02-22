@@ -8,7 +8,7 @@ public sealed record ResolvedConnection(
     byte SlaveId,
     int Timeout,
     int Retries,
-    int SerialBaud,
+    int? SerialBaud,
     int SerialDataBits,
     string SerialParity,
     string SerialStopBits)

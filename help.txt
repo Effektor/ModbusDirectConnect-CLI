@@ -58,7 +58,7 @@ TRANSPORT OPTIONS:
   Serial (RTU):
     --serial DEV
     --serial-port DEV
-    --baud RATE
+    --baud RATE                          Required for serial transport
     --parity {N,E,O}
     --databits {7,8}
     --stopbits {1,2}

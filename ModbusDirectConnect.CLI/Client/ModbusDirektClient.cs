@@ -195,7 +195,12 @@ public sealed class ModbusDirektClient : IModbusClient
             throw new ArgumentException("Serial transport requires a serial port path or port name.");
         }
 
-        if (connection.SerialBaud <= 0)
+        if (!connection.SerialBaud.HasValue)
+        {
+            throw new ArgumentException("Serial transport requires --baud to be provided explicitly.");
+        }
+
+        if (connection.SerialBaud.Value <= 0)
         {
             throw new ArgumentException($"Invalid --baud '{connection.SerialBaud}'. Baud rate must be a positive integer.");
         }
@@ -208,7 +213,7 @@ public sealed class ModbusDirektClient : IModbusClient
         return new ModbusSerialChannel(
             portName: connection.SerialPort,
             unitIdentifier: connection.SlaveId,
-            baudRate: connection.SerialBaud,
+            baudRate: connection.SerialBaud.Value,
             parity: ParseParity(connection.SerialParity),
             dataBits: connection.SerialDataBits,
             stopBits: ParseStopBits(connection.SerialStopBits),
