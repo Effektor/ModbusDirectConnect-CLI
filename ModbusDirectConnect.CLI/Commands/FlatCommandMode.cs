@@ -676,6 +676,7 @@ public static class FlatCommandMode
             foreach (var spec in FunctionCodeSpecs)
             {
                 var state = states[spec.CodeLabel];
+                var previousMaxAddress = state.MaxDiscoveredAddress;
 
                 for (var step = 0; step < ScanDiscoveryStepsPerCycle && !state.Discovery.IsCompleted; step++)
                 {
@@ -687,14 +688,38 @@ public static class FlatCommandMode
                     continue;
                 }
 
-                var snapshot = await ReadAddressSpaceSnapshotAsync(client, spec, state.MaxDiscoveredAddress, cycle, showProgress: false, connection.Transport);
-                if (snapshot.UnreadableCellCount > 0)
+                if (state.MaxDiscoveredAddress > previousMaxAddress)
                 {
-                    warnings.Add($"[{spec.CodeLabel}] unreadable cells in cycle {cycle}: {snapshot.UnreadableCellCount}");
+                    state.NeedsColdSweep = true;
                 }
 
-                EnsureScanBufferSize(state, snapshot.Values.Length);
-                var changedNow = ApplyScanSnapshot(state, snapshot.Values);
+                EnsureScanBufferSize(state, state.MaxDiscoveredAddress + 1);
+                var changedNow = new HashSet<int>();
+                var shouldColdSweep = state.NeedsColdSweep
+                    || state.LastColdSweepCycle < 0
+                    || (cycle - state.LastColdSweepCycle) >= ScanColdSweepIntervalCycles;
+
+                if (shouldColdSweep)
+                {
+                    var sweep = await ReadAddressSpaceSnapshotAsync(client, spec, state.MaxDiscoveredAddress, cycle, showProgress: false, connection.Transport);
+                    changedNow.UnionWith(ApplyScanSnapshot(state, sweep.Values));
+                    state.LastColdSweepCycle = cycle;
+                    state.NeedsColdSweep = false;
+                    if (sweep.UnreadableCellCount > 0)
+                    {
+                        warnings.Add($"[{spec.CodeLabel}] cold-sweep unreadable cells in cycle {cycle}: {sweep.UnreadableCellCount}");
+                    }
+                }
+                else if (state.ChangedEver.Count > 0)
+                {
+                    var hotRead = await ReadHotAddressesSnapshotAsync(client, state, connection.Transport);
+                    changedNow.UnionWith(ApplySparseScanSnapshot(state, hotRead.ValuesByAddress));
+                    if (hotRead.UnreadableCellCount > 0)
+                    {
+                        warnings.Add($"[{spec.CodeLabel}] hot-read unreadable cells in cycle {cycle}: {hotRead.UnreadableCellCount}");
+                    }
+                }
+
                 changedNowByCode[spec.CodeLabel] = changedNow;
             }
 
@@ -798,6 +823,100 @@ public static class FlatCommandMode
         }
 
         return changedNow;
+    }
+
+    private static HashSet<int> ApplySparseScanSnapshot(ScanState state, IReadOnlyDictionary<int, string> valuesByAddress)
+    {
+        var changedNow = new HashSet<int>();
+        foreach (var entry in valuesByAddress)
+        {
+            var address = entry.Key;
+            var current = entry.Value;
+            if (address < 0 || address >= state.PreviousValues.Length)
+            {
+                continue;
+            }
+
+            if (string.Equals(current, SnapshotUnreadableValue, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var previous = state.PreviousValues[address];
+            if (!string.Equals(current, previous, StringComparison.Ordinal))
+            {
+                changedNow.Add(address);
+                state.ChangedEver.Add(address);
+            }
+
+            state.PreviousValues[address] = current;
+        }
+
+        return changedNow;
+    }
+
+    private static async Task<HotReadResult> ReadHotAddressesSnapshotAsync(
+        IModbusClient client,
+        ScanState state,
+        TransportKind transportKind)
+    {
+        var valuesByAddress = new Dictionary<int, string>();
+        var unreadableCellCount = 0;
+        var ranges = BuildReadRanges(state.ChangedEver, state.MaxDiscoveredAddress, state.Spec.MaxReadCount);
+
+        foreach (var range in ranges)
+        {
+            var chunk = await ReadSnapshotChunkWithRecoveryAsync(client, state.Spec, range.StartAddress, range.Count, transportKind);
+            for (var offset = 0; offset < range.Count; offset++)
+            {
+                var value = chunk.Values[offset];
+                if (string.Equals(value, SnapshotUnreadableValue, StringComparison.Ordinal))
+                {
+                    unreadableCellCount++;
+                    continue;
+                }
+
+                valuesByAddress[range.StartAddress + offset] = value;
+            }
+        }
+
+        return new HotReadResult(valuesByAddress, unreadableCellCount);
+    }
+
+    private static List<ReadRange> BuildReadRanges(IEnumerable<int> addresses, int maxAddress, int maxCountPerRead)
+    {
+        var sorted = addresses
+            .Where(address => address >= 0 && address <= maxAddress)
+            .Distinct()
+            .OrderBy(address => address)
+            .ToArray();
+
+        var ranges = new List<ReadRange>();
+        if (sorted.Length == 0)
+        {
+            return ranges;
+        }
+
+        var start = sorted[0];
+        var end = sorted[0];
+        for (var i = 1; i < sorted.Length; i++)
+        {
+            var address = sorted[i];
+            var contiguous = address == end + 1;
+            var countIfExpanded = address - start + 1;
+            if (contiguous && countIfExpanded <= maxCountPerRead)
+            {
+                end = address;
+                continue;
+            }
+
+            ranges.Add(new ReadRange(start, end - start + 1));
+            start = address;
+            end = address;
+        }
+
+        ranges.Add(new ReadRange(start, end - start + 1));
+        return ranges;
     }
 
     private static void EnsureScanBufferSize(ScanState state, int requiredLength)
@@ -1617,6 +1736,7 @@ public static class FlatCommandMode
     private const int ProbeMaxAttempts = 3;
     private const int SnapshotReadMaxAttempts = 3;
     private const int ScanDiscoveryStepsPerCycle = 4;
+    private const int ScanColdSweepIntervalCycles = 5;
     private const string SnapshotUnreadableValue = "<read-error>";
 
     private sealed record FunctionCodeSpec(
@@ -1638,6 +1758,10 @@ public static class FlatCommandMode
 
     private sealed record SnapshotChunkResult(string[] Values, int UnreadableCellCount);
 
+    private sealed record HotReadResult(IReadOnlyDictionary<int, string> ValuesByAddress, int UnreadableCellCount);
+
+    private sealed record ReadRange(int StartAddress, int Count);
+
     private sealed class ScanState
     {
         public ScanState(FunctionCodeSpec spec)
@@ -1654,6 +1778,10 @@ public static class FlatCommandMode
         public int MaxDiscoveredAddress { get; set; } = -1;
 
         public string[] PreviousValues { get; set; }
+
+        public int LastColdSweepCycle { get; set; } = -1;
+
+        public bool NeedsColdSweep { get; set; } = true;
 
         public HashSet<int> ChangedEver { get; } = new();
     }
