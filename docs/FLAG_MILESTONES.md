@@ -9,6 +9,7 @@ Status values:
 
 | Flag | Status | Notes |
 | --- | --- | --- |
+| `--analyze` | Implemented | Probes FC01..FC04 spaces, reports volatility and mirror/overlap hints. |
 | `--ascii` | Planned | Reserved; runtime currently returns not implemented. |
 | `--baud` | Implemented | Applied to serial RTU channel configuration. |
 | `--be` | Planned | Parsing milestone only. |
@@ -50,7 +51,7 @@ Status values:
 | `--rtu` | Partial | RTU-over-TCP supported; also infers serial RTU when target is serial-like. |
 | `--s16` | Planned | Parsing milestone only. |
 | `--s32` | Planned | Parsing milestone only. |
-| `--scan` | Planned | Parsing milestone only. |
+| `--scan` | Implemented | Standalone multi-FC live scan dashboard with sticky changed-address tracking. |
 | `--serial` | Implemented | Serial RTU transport implemented via library serial channel. |
 | `--stopbits` | Implemented | Applied to serial RTU channel configuration. |
 | `--string` | Implemented | Register-byte string decoding mode. |

@@ -21,17 +21,24 @@ OPERATION (exactly one required):
         --ref SPEC
 
   Writes:
-    -wr, --write-reg ADDR              Implemented
-    -wmr, --write-multi-reg ADDR       Implemented
-    -wc, --write-coil ADDR             Parsed, but runtime write is not available in current library
-    -wmc, --write-multi-coil ADDR      Parsed, but runtime write is not available in current library
+    -wr, --write-reg ADDR
+    -wmr, --write-multi-reg ADDR
+
+  Analysis:
+    --analyze                          Probe FC01..FC04 address spaces and report overlap/mirroring
+    --scan [SEC]                       Live 4-column FC01..FC04 dashboard of changed addresses
 
 SPEC / ADDR / COUNT:
   SPEC format:
     ADDR
     ADDR:COUNT
 
-  -c, --count N                         Default read count is 1 (ignored if SPEC has :COUNT)
+  -c, --count N                        Default read count is 1 (ignored if SPEC has :COUNT)
+
+  Protocol read limits:
+    FC01/FC02 max count = 2000 bits
+    FC03/FC04 max count = 125 registers
+    Max protocol address = 65535
 
   --ref maps Modicon references:
     1..9999       -> coils (FC01), addr = ref - 1
@@ -55,7 +62,6 @@ TRANSPORT OPTIONS:
     --parity {N,E,O}
     --databits {7,8}
     --stopbits {1,2}
-    --ascii                              Not implemented yet (returns error)
 
   Also accepted:
     -u, --unit, --slave ID               Default 1
@@ -66,12 +72,7 @@ TRANSPORT OPTIONS:
 WRITE DATA FLAGS:
   -d, --data X
   --value X                              Alias for --data
-  --on / --off                           Convenience for --write-coil
   --raw16 X                              Raw 16-bit helper
-
-  Multi-coil payload input:
-    --bits BITSTRING_OR_CSV
-    --bytes HEXBYTE_LIST
 
 READ OUTPUT / DECODE (implemented now):
   Coil/discrete read formatting:
@@ -102,15 +103,9 @@ VERBOSITY:
   -vv
   -vvv
 
-MILESTONE FLAGS (accepted but not implemented in runtime decode/format logic):
-  --u16 --s16 --u32 --s32 --f32 --f64
-  --be --le --little-endian --ws --word-swap --bs --byte-swap
-  --group --scan --no-color --raw-bytes
-
 COMMON:
   -h, --help
   --version
 
 NOTES:
   - Only one operation flag can be used per command invocation.
-  - Coil write operations are parsed, but are not available due to library public API limitations.
