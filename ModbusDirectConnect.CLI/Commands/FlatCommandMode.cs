@@ -616,10 +616,15 @@ public static class FlatCommandMode
         var captures = new List<FunctionCodeCapture>();
         foreach (var space in discoveredSpaces.Where(s => s.MaxAddress >= 0))
         {
-            var firstSnapshot = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 1, showProgress: true);
-            var secondSnapshot = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 2, showProgress: true);
-            var volatileMask = BuildVolatileMask(firstSnapshot, secondSnapshot);
-            captures.Add(new FunctionCodeCapture(space, secondSnapshot, volatileMask));
+            var firstSnapshot = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 1, showProgress: true, transportKind);
+            var secondSnapshot = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 2, showProgress: true, transportKind);
+            var volatileMask = BuildVolatileMask(firstSnapshot.Values, secondSnapshot.Values);
+            captures.Add(new FunctionCodeCapture(space, secondSnapshot.Values, volatileMask));
+
+            if (firstSnapshot.UnreadableCellCount > 0 || secondSnapshot.UnreadableCellCount > 0)
+            {
+                Console.WriteLine($"  [{space.Spec.CodeLabel}] snapshot warnings: unreadable cells pass1={firstSnapshot.UnreadableCellCount}, pass2={secondSnapshot.UnreadableCellCount}");
+            }
         }
 
         Console.WriteLine();
@@ -654,8 +659,12 @@ public static class FlatCommandMode
         var states = new Dictionary<string, ScanState>(StringComparer.Ordinal);
         foreach (var space in discoveredSpaces.Where(s => s.MaxAddress >= 0))
         {
-            var initial = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 0, showProgress: true);
-            states[space.Spec.CodeLabel] = new ScanState(space, initial);
+            var initial = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 0, showProgress: true, transportKind);
+            states[space.Spec.CodeLabel] = new ScanState(space, initial.Values);
+            if (initial.UnreadableCellCount > 0)
+            {
+                Console.WriteLine($"[{space.Spec.CodeLabel}] initial snapshot unreadable cells: {initial.UnreadableCellCount}");
+            }
         }
 
         if (states.Count == 0)
@@ -665,6 +674,7 @@ public static class FlatCommandMode
         }
 
         Console.WriteLine("Starting live scan dashboard (Ctrl+C to stop)...");
+        RenderScanDashboard(states, new Dictionary<string, HashSet<int>>(StringComparer.Ordinal), 0);
         var cancellationTokenSource = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
         {
@@ -685,10 +695,16 @@ public static class FlatCommandMode
                     continue;
                 }
 
-                var current = await ReadAddressSpaceSnapshotAsync(client, spec, state.Space.MaxAddress, cycle, showProgress: false);
+                var currentSnapshot = await ReadAddressSpaceSnapshotAsync(client, spec, state.Space.MaxAddress, cycle, showProgress: false, transportKind);
+                var current = currentSnapshot.Values;
                 var changedNow = new HashSet<int>();
                 for (var address = 0; address < current.Length; address++)
                 {
+                    if (string.Equals(current[address], SnapshotUnreadableValue, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
                     if (!string.Equals(current[address], state.PreviousValues[address], StringComparison.Ordinal))
                     {
                         changedNow.Add(address);
@@ -729,7 +745,7 @@ public static class FlatCommandMode
         FunctionCodeSpec spec,
         TransportKind transportKind)
     {
-        var probeWindow = Math.Min(ProtocolLimits.InitialProbeWindow, spec.MaxReadCount);
+        var probeWindow = spec.MaxReadCount;
         var stepSize = Math.Max(1, probeWindow / 2);
         var probeUpperAddress = Math.Min(ProtocolLimits.MaxAddress, probeWindow - 1);
 
@@ -833,6 +849,11 @@ public static class FlatCommandMode
             }
         }
 
+        if (await VerifyUpperAddressAsync(client, spec, upperAddress, transportKind))
+        {
+            return new ProbeReadResult(startAddress, count, Success: true, FailureReason: null);
+        }
+
         if (lastFailure is null)
         {
             throw new InvalidOperationException("Probe failed without a captured error.");
@@ -842,30 +863,69 @@ public static class FlatCommandMode
         return new ProbeReadResult(startAddress, count, Success: false, FailureReason: reason);
     }
 
-    private static async Task<string[]> ReadAddressSpaceSnapshotAsync(
+    private static async Task<bool> VerifyUpperAddressAsync(
+        IModbusClient client,
+        FunctionCodeSpec spec,
+        int upperAddress,
+        TransportKind transportKind)
+    {
+        if (upperAddress < 0 || upperAddress > ProtocolLimits.MaxAddress)
+        {
+            return false;
+        }
+
+        ProbeFailure? lastFailure = null;
+        for (var attempt = 1; attempt <= ProbeMaxAttempts; attempt++)
+        {
+            try
+            {
+                await spec.ProbeReadAsync(client, (ushort)upperAddress, 1);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                var category = ClassifyErrorCategory(ex, transportKind);
+                if (IsFatalProbeError(category))
+                {
+                    throw new InvalidOperationException(
+                        $"Probe verification for {spec.CodeLabel} at address={upperAddress} failed due to {DescribeErrorCategory(category)}.",
+                        ex);
+                }
+
+                lastFailure = new ProbeFailure(category, FormatErrorMessage(ex));
+                if (category is CliErrorCategory.ModbusDevice or CliErrorCategory.Gateway)
+                {
+                    return false;
+                }
+            }
+        }
+
+        _ = lastFailure;
+        return false;
+    }
+
+    private static async Task<SnapshotReadResult> ReadAddressSpaceSnapshotAsync(
         IModbusClient client,
         FunctionCodeSpec spec,
         int maxAddress,
         int pass,
-        bool showProgress)
+        bool showProgress,
+        TransportKind transportKind)
     {
         if (maxAddress < 0)
         {
-            return Array.Empty<string>();
+            return new SnapshotReadResult(Array.Empty<string>(), 0);
         }
 
         var values = new string[maxAddress + 1];
+        var unreadableCellCount = 0;
         var total = maxAddress + 1;
         for (var startAddress = 0; startAddress <= maxAddress; startAddress += spec.MaxReadCount)
         {
             var count = Math.Min(spec.MaxReadCount, (maxAddress - startAddress) + 1);
-            var chunk = await spec.ReadValuesAsync(client, (ushort)startAddress, (ushort)count);
-            if (chunk.Length < count)
-            {
-                throw new InvalidOperationException($"{spec.CodeLabel} snapshot read returned {chunk.Length} values, expected {count}.");
-            }
-
-            Array.Copy(chunk, 0, values, startAddress, count);
+            var chunk = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress, count, transportKind);
+            Array.Copy(chunk.Values, 0, values, startAddress, count);
+            unreadableCellCount += chunk.UnreadableCellCount;
 
             if (showProgress)
             {
@@ -874,7 +934,57 @@ public static class FlatCommandMode
             }
         }
 
-        return values;
+        return new SnapshotReadResult(values, unreadableCellCount);
+    }
+
+    private static async Task<SnapshotChunkResult> ReadSnapshotChunkWithRecoveryAsync(
+        IModbusClient client,
+        FunctionCodeSpec spec,
+        int startAddress,
+        int count,
+        TransportKind transportKind)
+    {
+        ValidateReadRange((ushort)startAddress, (ushort)count, spec.MaxReadCount, spec.CodeLabel);
+
+        ProbeFailure? lastFailure = null;
+        for (var attempt = 1; attempt <= SnapshotReadMaxAttempts; attempt++)
+        {
+            try
+            {
+                var chunk = await spec.ReadValuesAsync(client, (ushort)startAddress, (ushort)count);
+                if (chunk.Length < count)
+                {
+                    throw new InvalidOperationException($"{spec.CodeLabel} snapshot read returned {chunk.Length} values, expected {count}.");
+                }
+
+                return new SnapshotChunkResult(chunk, 0);
+            }
+            catch (Exception ex)
+            {
+                var category = ClassifyErrorCategory(ex, transportKind);
+                if (IsFatalProbeError(category))
+                {
+                    throw new InvalidOperationException(
+                        $"Snapshot read for {spec.CodeLabel} at start={startAddress}, count={count} failed due to {DescribeErrorCategory(category)}.",
+                        ex);
+                }
+
+                lastFailure = new ProbeFailure(category, FormatErrorMessage(ex));
+            }
+        }
+
+        if (count == 1)
+        {
+            return new SnapshotChunkResult(new[] { SnapshotUnreadableValue }, 1);
+        }
+
+        var leftCount = count / 2;
+        var rightCount = count - leftCount;
+        var left = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress, leftCount, transportKind);
+        var right = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress + leftCount, rightCount, transportKind);
+        return new SnapshotChunkResult(
+            left.Values.Concat(right.Values).ToArray(),
+            left.UnreadableCellCount + right.UnreadableCellCount);
     }
 
     private static bool[] BuildVolatileMask(string[] firstSnapshot, string[] secondSnapshot)
@@ -883,6 +993,13 @@ public static class FlatCommandMode
         var volatileMask = new bool[length];
         for (var i = 0; i < length; i++)
         {
+            if (string.Equals(firstSnapshot[i], SnapshotUnreadableValue, StringComparison.Ordinal)
+                || string.Equals(secondSnapshot[i], SnapshotUnreadableValue, StringComparison.Ordinal))
+            {
+                volatileMask[i] = true;
+                continue;
+            }
+
             volatileMask[i] = !string.Equals(firstSnapshot[i], secondSnapshot[i], StringComparison.Ordinal);
         }
 
@@ -1410,6 +1527,8 @@ public static class FlatCommandMode
     };
 
     private const int ProbeMaxAttempts = 3;
+    private const int SnapshotReadMaxAttempts = 3;
+    private const string SnapshotUnreadableValue = "<read-error>";
 
     private sealed record FunctionCodeSpec(
         string CodeLabel,
@@ -1425,6 +1544,10 @@ public static class FlatCommandMode
     private sealed record ProbeReadResult(int StartAddress, int Count, bool Success, string? FailureReason);
 
     private sealed record ProbeFailure(CliErrorCategory Category, string Message);
+
+    private sealed record SnapshotReadResult(string[] Values, int UnreadableCellCount);
+
+    private sealed record SnapshotChunkResult(string[] Values, int UnreadableCellCount);
 
     private sealed class ScanState
     {
@@ -1444,7 +1567,6 @@ public static class FlatCommandMode
     private static class ProtocolLimits
     {
         public const int MaxAddress = ushort.MaxValue;
-        public const int InitialProbeWindow = 256;
         public const int MaxBitsPerRead = 2000;
         public const int MaxRegistersPerRead = 125;
     }
