@@ -664,79 +664,96 @@ public static class FlatCommandMode
             eventArgs.Cancel = true;
             cancellationTokenSource.Cancel();
         };
+        var cancellationToken = cancellationTokenSource.Token;
 
         var cycle = -1;
-        while (!cancellationTokenSource.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            cycle++;
-            var changedNowByCode = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
-            var warnings = new List<string>();
-
-            foreach (var spec in FunctionCodeSpecs)
-            {
-                var state = states[spec.CodeLabel];
-                var previousMaxAddress = state.MaxDiscoveredAddress;
-
-                for (var step = 0; step < ScanDiscoveryStepsPerCycle && !state.Discovery.IsCompleted; step++)
-                {
-                    await AdvanceScanDiscoveryAsync(client, state, connection.Transport);
-                }
-
-                if (state.MaxDiscoveredAddress < 0)
-                {
-                    continue;
-                }
-
-                if (state.MaxDiscoveredAddress > previousMaxAddress)
-                {
-                    state.NeedsColdSweep = true;
-                }
-
-                EnsureScanBufferSize(state, state.MaxDiscoveredAddress + 1);
-                var changedNow = new HashSet<int>();
-                var shouldColdSweep = state.NeedsColdSweep
-                    || state.LastColdSweepCycle < 0
-                    || (cycle - state.LastColdSweepCycle) >= ScanColdSweepIntervalCycles;
-
-                if (shouldColdSweep)
-                {
-                    var sweep = await ReadAddressSpaceSnapshotAsync(client, spec, state.MaxDiscoveredAddress, cycle, showProgress: false, connection.Transport);
-                    changedNow.UnionWith(ApplyScanSnapshot(state, sweep.Values));
-                    state.LastColdSweepCycle = cycle;
-                    state.NeedsColdSweep = false;
-                    if (sweep.UnreadableCellCount > 0)
-                    {
-                        warnings.Add($"[{spec.CodeLabel}] cold-sweep unreadable cells in cycle {cycle}: {sweep.UnreadableCellCount}");
-                    }
-                }
-                else if (state.ChangedEver.Count > 0)
-                {
-                    var hotRead = await ReadHotAddressesSnapshotAsync(client, state, connection.Transport);
-                    changedNow.UnionWith(ApplySparseScanSnapshot(state, hotRead.ValuesByAddress));
-                    if (hotRead.UnreadableCellCount > 0)
-                    {
-                        warnings.Add($"[{spec.CodeLabel}] hot-read unreadable cells in cycle {cycle}: {hotRead.UnreadableCellCount}");
-                    }
-                }
-
-                changedNowByCode[spec.CodeLabel] = changedNow;
-            }
-
-            RenderScanDashboard(states, changedNowByCode, cycle, warnings);
-
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationTokenSource.Token);
+                cycle++;
+                var changedNowByCode = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+                var warnings = new List<string>();
+
+                foreach (var spec in FunctionCodeSpecs)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var state = states[spec.CodeLabel];
+                    var previousMaxAddress = state.MaxDiscoveredAddress;
+
+                    for (var step = 0; step < ScanDiscoveryStepsPerCycle && !state.Discovery.IsCompleted; step++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await AdvanceScanDiscoveryAsync(client, state, connection.Transport, cancellationToken);
+                    }
+
+                    if (state.MaxDiscoveredAddress < 0)
+                    {
+                        continue;
+                    }
+
+                    if (state.MaxDiscoveredAddress > previousMaxAddress)
+                    {
+                        state.NeedsColdSweep = true;
+                    }
+
+                    EnsureScanBufferSize(state, state.MaxDiscoveredAddress + 1);
+                    var changedNow = new HashSet<int>();
+                    var shouldColdSweep = state.NeedsColdSweep
+                        || state.LastColdSweepCycle < 0
+                        || (cycle - state.LastColdSweepCycle) >= ScanColdSweepIntervalCycles;
+
+                    if (shouldColdSweep)
+                    {
+                        var sweep = await ReadAddressSpaceSnapshotAsync(
+                            client,
+                            spec,
+                            state.MaxDiscoveredAddress,
+                            cycle,
+                            showProgress: false,
+                            connection.Transport,
+                            cancellationToken);
+                        changedNow.UnionWith(ApplyScanSnapshot(state, sweep.Values));
+                        state.LastColdSweepCycle = cycle;
+                        state.NeedsColdSweep = false;
+                        if (sweep.UnreadableCellCount > 0)
+                        {
+                            warnings.Add($"[{spec.CodeLabel}] cold-sweep unreadable cells in cycle {cycle}: {sweep.UnreadableCellCount}");
+                        }
+                    }
+                    else if (state.ChangedEver.Count > 0)
+                    {
+                        var hotRead = await ReadHotAddressesSnapshotAsync(client, state, connection.Transport, cancellationToken);
+                        changedNow.UnionWith(ApplySparseScanSnapshot(state, hotRead.ValuesByAddress));
+                        if (hotRead.UnreadableCellCount > 0)
+                        {
+                            warnings.Add($"[{spec.CodeLabel}] hot-read unreadable cells in cycle {cycle}: {hotRead.UnreadableCellCount}");
+                        }
+                    }
+
+                    changedNowByCode[spec.CodeLabel] = changedNow;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                RenderScanDashboard(states, changedNowByCode, cycle, warnings);
+
+                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationToken);
             }
-            catch (TaskCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 break;
             }
         }
     }
 
-    private static async Task AdvanceScanDiscoveryAsync(IModbusClient client, ScanState state, TransportKind transportKind)
+    private static async Task AdvanceScanDiscoveryAsync(
+        IModbusClient client,
+        ScanState state,
+        TransportKind transportKind,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var tracker = state.Discovery;
         if (tracker.IsCompleted)
         {
@@ -746,7 +763,13 @@ public static class FlatCommandMode
         var probeWindow = state.Spec.MaxReadCount;
         if (!tracker.InBisection)
         {
-            var probe = await TryProbeReadUpToAsync(client, state.Spec, tracker.NextProbeUpperAddress, probeWindow, transportKind);
+            var probe = await TryProbeReadUpToAsync(
+                client,
+                state.Spec,
+                tracker.NextProbeUpperAddress,
+                probeWindow,
+                transportKind,
+                cancellationToken);
             if (probe.Success)
             {
                 tracker.MaxSuccessfulAddress = tracker.NextProbeUpperAddress;
@@ -781,7 +804,7 @@ public static class FlatCommandMode
         }
 
         var mid = tracker.BisectLow + ((tracker.BisectHigh - tracker.BisectLow) / 2);
-        var bisectProbe = await TryProbeReadUpToAsync(client, state.Spec, mid, probeWindow, transportKind);
+        var bisectProbe = await TryProbeReadUpToAsync(client, state.Spec, mid, probeWindow, transportKind, cancellationToken);
         if (bisectProbe.Success)
         {
             tracker.MaxSuccessfulAddress = mid;
@@ -871,7 +894,8 @@ public static class FlatCommandMode
     private static async Task<HotReadResult> ReadHotAddressesSnapshotAsync(
         IModbusClient client,
         ScanState state,
-        TransportKind transportKind)
+        TransportKind transportKind,
+        CancellationToken cancellationToken = default)
     {
         var valuesByAddress = new Dictionary<int, string>();
         var unreadableCellCount = 0;
@@ -879,7 +903,8 @@ public static class FlatCommandMode
 
         foreach (var range in ranges)
         {
-            var chunk = await ReadSnapshotChunkWithRecoveryAsync(client, state.Spec, range.StartAddress, range.Count, transportKind);
+            cancellationToken.ThrowIfCancellationRequested();
+            var chunk = await ReadSnapshotChunkWithRecoveryAsync(client, state.Spec, range.StartAddress, range.Count, transportKind, cancellationToken);
             for (var offset = 0; offset < range.Count; offset++)
             {
                 var value = chunk.Values[offset];
@@ -1040,7 +1065,8 @@ public static class FlatCommandMode
         FunctionCodeSpec spec,
         int upperAddress,
         int probeWindow,
-        TransportKind transportKind)
+        TransportKind transportKind,
+        CancellationToken cancellationToken = default)
     {
         var startAddress = Math.Max(0, upperAddress - probeWindow + 1);
         var count = upperAddress - startAddress + 1;
@@ -1051,8 +1077,13 @@ public static class FlatCommandMode
         {
             try
             {
-                await spec.ProbeReadAsync(client, (ushort)startAddress, (ushort)count);
+                cancellationToken.ThrowIfCancellationRequested();
+                await spec.ProbeReadAsync(client, (ushort)startAddress, (ushort)count).WaitAsync(cancellationToken);
                 return new ProbeReadResult(startAddress, count, Success: true, FailureReason: null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -1068,7 +1099,7 @@ public static class FlatCommandMode
             }
         }
 
-        if (await VerifyUpperAddressAsync(client, spec, upperAddress, transportKind))
+        if (await VerifyUpperAddressAsync(client, spec, upperAddress, transportKind, cancellationToken))
         {
             return new ProbeReadResult(startAddress, count, Success: true, FailureReason: null);
         }
@@ -1086,7 +1117,8 @@ public static class FlatCommandMode
         IModbusClient client,
         FunctionCodeSpec spec,
         int upperAddress,
-        TransportKind transportKind)
+        TransportKind transportKind,
+        CancellationToken cancellationToken = default)
     {
         if (upperAddress < 0 || upperAddress > ProtocolLimits.MaxAddress)
         {
@@ -1098,8 +1130,13 @@ public static class FlatCommandMode
         {
             try
             {
-                await spec.ProbeReadAsync(client, (ushort)upperAddress, 1);
+                cancellationToken.ThrowIfCancellationRequested();
+                await spec.ProbeReadAsync(client, (ushort)upperAddress, 1).WaitAsync(cancellationToken);
                 return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -1129,7 +1166,8 @@ public static class FlatCommandMode
         int maxAddress,
         int pass,
         bool showProgress,
-        TransportKind transportKind)
+        TransportKind transportKind,
+        CancellationToken cancellationToken = default)
     {
         if (maxAddress < 0)
         {
@@ -1141,8 +1179,9 @@ public static class FlatCommandMode
         var total = maxAddress + 1;
         for (var startAddress = 0; startAddress <= maxAddress; startAddress += spec.MaxReadCount)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var count = Math.Min(spec.MaxReadCount, (maxAddress - startAddress) + 1);
-            var chunk = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress, count, transportKind);
+            var chunk = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress, count, transportKind, cancellationToken);
             Array.Copy(chunk.Values, 0, values, startAddress, count);
             unreadableCellCount += chunk.UnreadableCellCount;
 
@@ -1161,8 +1200,10 @@ public static class FlatCommandMode
         FunctionCodeSpec spec,
         int startAddress,
         int count,
-        TransportKind transportKind)
+        TransportKind transportKind,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ValidateReadRange((ushort)startAddress, (ushort)count, spec.MaxReadCount, spec.CodeLabel);
 
         ProbeFailure? lastFailure = null;
@@ -1170,13 +1211,18 @@ public static class FlatCommandMode
         {
             try
             {
-                var chunk = await spec.ReadValuesAsync(client, (ushort)startAddress, (ushort)count);
+                cancellationToken.ThrowIfCancellationRequested();
+                var chunk = await spec.ReadValuesAsync(client, (ushort)startAddress, (ushort)count).WaitAsync(cancellationToken);
                 if (chunk.Length < count)
                 {
                     throw new InvalidOperationException($"{spec.CodeLabel} snapshot read returned {chunk.Length} values, expected {count}.");
                 }
 
                 return new SnapshotChunkResult(chunk, 0);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -1199,8 +1245,8 @@ public static class FlatCommandMode
 
         var leftCount = count / 2;
         var rightCount = count - leftCount;
-        var left = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress, leftCount, transportKind);
-        var right = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress + leftCount, rightCount, transportKind);
+        var left = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress, leftCount, transportKind, cancellationToken);
+        var right = await ReadSnapshotChunkWithRecoveryAsync(client, spec, startAddress + leftCount, rightCount, transportKind, cancellationToken);
         return new SnapshotChunkResult(
             left.Values.Concat(right.Values).ToArray(),
             left.UnreadableCellCount + right.UnreadableCellCount);
