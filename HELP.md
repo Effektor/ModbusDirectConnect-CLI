@@ -24,6 +24,10 @@ OPERATION (exactly one required):
     -wmc,--write-multi-coil ADDR      Write multiple coils (FC15)
     -wmr,--write-multi-reg  ADDR      Write multiple holding registers (FC16)
 
+  Analysis:
+        --analyze                     Probe FC01..FC04 address spaces and report overlap/mirroring
+        --scan [SEC]                  Live FC01..FC04 changed-value dashboard (defaults to 1.0s)
+
 SPEC / ADDR / COUNT:
   Addressing is 0-based by default (protocol addressing).
   SPEC may be:
@@ -38,6 +42,11 @@ SPEC / ADDR / COUNT:
 
   -c, --count N         Number of items to read (default: 1)
                         Ignored if SPEC includes ":COUNT".
+
+  Protocol read limits:
+    FC01/FC02: max count 2000 bits per request
+    FC03/FC04: max count 125 registers per request
+    Address range: 0..65535 (start + count - 1 must stay within range)
 
 UNIT / SLAVE ID:
   -u, --unit ID         Unit identifier / slave address (default: 1)
@@ -150,10 +159,16 @@ WATCH / MONITOR (continuous reads):
 ADVANCED ANALYSIS:
     --diff               When watching/monitoring, highlight values that changed since last read
     --only-changed       Only print values that changed since last read
-    --group N            Group output (e.g. 2 regs per value for f32 scanning)
-    --scan {u16,s16,f32,...}
-                         Interpret the whole range as repeated values of the chosen type
-                         (useful when hunting PV/SP-like signals)
+    --group N            Reserved milestone flag (currently parsed only)
+
+ANALYZE / SCAN MODES:
+    --analyze            No read flag needed. Probes address-space limits for FC01..FC04
+                         with stepped probing + bisection, then compares stable cells to
+                         report likely mirrors/overlap between function-code tables.
+    --scan [SEC]         No read flag needed. Discovers FC01..FC04 ranges, then runs a
+                         continuous clear-screen dashboard with one column per FC. Only
+                         changed addresses are shown; once an address changes, it remains
+                         in the dashboard. A '*' marks addresses changed in the last cycle.
 
 OUTPUT OPTIONS:
     -v                   Verbose (show transport, function, unit, request/response summary)
@@ -183,11 +198,14 @@ EXAMPLES:
   Read 5 coils starting at coil 0 (TCP):
     mbdc 192.168.1.1 -rc 0:5
 
-  Read holding registers 0..9 and decode as float32 scan (byte swap + word swap):
-    mbdc 192.168.1.1 -rh 0:10 --scan f32 --le --ws
+  Analyze device address spaces and mirror candidates:
+    mbdc 192.168.1.1 --analyze
 
   Read reference 40001 (holding reg #1) and display raw + u16:
     mbdc 192.168.1.1 --ref 40001
+
+  Run live cross-FC scan dashboard (clear/redraw every 0.5s):
+    mbdc 192.168.1.1 --scan 0.5
 
   Watch a large register block while hunting PV/SP (show only changes):
     mbdc 192.168.1.1 -rh 0:200 --watch 0.5 --only-changed

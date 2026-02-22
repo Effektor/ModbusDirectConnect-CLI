@@ -74,6 +74,9 @@ mbdc [TARGET] [TRANSPORT OPTIONS] [OPERATION] [DATA/OUTPUT OPTIONS]
 - Monitoring modes:
   - `--watch [SEC]`
   - `--monitor [SEC]`
+- Analysis modes:
+  - `--analyze`
+  - `--scan [SEC]`
 
 ## Quick Examples
 
@@ -95,6 +98,16 @@ mbdc 192.168.1.10 --rtu --read-holding 0:6
 ### Watch values continuously
 ```bash
 mbdc 192.168.1.10 --read-inputreg 0:20 --watch 0.5 --only-changed
+```
+
+### Analyze FC01..FC04 address spaces
+```bash
+mbdc 192.168.1.10 --analyze
+```
+
+### Live multi-FC scan dashboard
+```bash
+mbdc 192.168.1.10 --scan 0.5
 ```
 
 ### Decode register bytes as string

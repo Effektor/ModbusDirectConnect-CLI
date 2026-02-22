@@ -16,6 +16,9 @@ public class CliArgumentCombinationTests
         yield return new object[] { new[] { "192.168.1.1", "-ri", "0:10", "--monitor", "0.5" } };
         yield return new object[] { new[] { "192.168.1.1", "--ref", "40001:10" } };
         yield return new object[] { new[] { "192.168.1.1", "--ref", "30001", "--count", "4" } };
+        yield return new object[] { new[] { "192.168.1.1", "--analyze" } };
+        yield return new object[] { new[] { "192.168.1.1", "--scan" } };
+        yield return new object[] { new[] { "192.168.1.1", "--scan", "0.5" } };
 
         yield return new object[] { new[] { "192.168.1.1", "-wc", "12", "--on" } };
         yield return new object[] { new[] { "192.168.1.1", "--write-coil", "12", "--off" } };
@@ -59,6 +62,14 @@ public class CliArgumentCombinationTests
     {
         var root = Program.BuildRootCommand();
         var exitCode = root.Invoke(ArgumentNormalizer.Normalize(new[] { "192.168.1.1", "--read-coil", "0", "--read-holding", "0" }));
+        Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
+    public void Invoke_FailsFast_WhenScanAndReadAreCombined()
+    {
+        var root = Program.BuildRootCommand();
+        var exitCode = root.Invoke(ArgumentNormalizer.Normalize(new[] { "192.168.1.1", "--scan", "--read-coil", "0:8" }));
         Assert.Equal(1, exitCode);
     }
 

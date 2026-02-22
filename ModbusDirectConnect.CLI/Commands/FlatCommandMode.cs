@@ -1,7 +1,9 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Globalization;
+using System.Net.Sockets;
 using System.Text;
+using ModbusDirekt.Exceptions;
 using ModbusDirectConnect.CLI.Client;
 using ModbusDirectConnect.CLI.Infrastructure;
 using ModbusDirectConnect.CLI.Transport;
@@ -59,10 +61,11 @@ public static class FlatCommandMode
 
         var watchOption = CreateOptionalIntervalOption("--watch", "Continuously re-read and append output");
         var monitorOption = CreateOptionalIntervalOption("--monitor", "Continuously re-read and redraw output");
+        var analyzeOption = new Option<bool>("--analyze", "Probe FC01-04 address spaces and report overlap/mirroring");
         var diffOption = new Option<bool>("--diff", "Highlight changed values");
         var onlyChangedOption = new Option<bool>("--only-changed", "Only show changed values");
         var groupOption = new Option<int?>("--group", "Group output values");
-        var scanOption = new Option<string?>("--scan", "Scan mode type");
+        var scanOption = CreateOptionalIntervalOption("--scan", "Live multi-FC scan dashboard (optional interval seconds)");
 
         var quietOption = new Option<bool>(new[] { "--quiet", "-q" }, "Minimal output");
         var jsonOption = new Option<bool>("--json", "JSON output");
@@ -113,6 +116,7 @@ public static class FlatCommandMode
 
         rootCommand.AddOption(watchOption);
         rootCommand.AddOption(monitorOption);
+        rootCommand.AddOption(analyzeOption);
         rootCommand.AddOption(diffOption);
         rootCommand.AddOption(onlyChangedOption);
         rootCommand.AddOption(groupOption);
@@ -135,6 +139,8 @@ public static class FlatCommandMode
             if (context.ParseResult.GetValueForOption(writeRegOption) is not null) selectedOps.Add("write-reg");
             if (context.ParseResult.GetValueForOption(writeMultiCoilOption) is not null) selectedOps.Add("write-multi-coil");
             if (context.ParseResult.GetValueForOption(writeMultiRegOption) is not null) selectedOps.Add("write-multi-reg");
+            if (context.ParseResult.GetValueForOption(analyzeOption)) selectedOps.Add("analyze");
+            if (context.ParseResult.GetValueForOption(scanOption) is not null) selectedOps.Add("scan");
 
             if (selectedOps.Count != 1)
             {
@@ -153,12 +159,25 @@ public static class FlatCommandMode
 
                 using var client = ModbusClientFactory.CreateClient(connection);
 
+                if (context.ParseResult.GetValueForOption(analyzeOption))
+                {
+                    await ExecuteAnalyzeMode(client);
+                    return;
+                }
+
+                if (context.ParseResult.GetValueForOption(scanOption) is { } scanIntervalSeconds)
+                {
+                    await ExecuteScanMode(client, scanIntervalSeconds);
+                    return;
+                }
+
                 var readCountDefault = context.ParseResult.GetValueForOption(countOption);
                 var output = BuildOutputOptions(context, boolOption, bitsOption, hexOption, stringOption, stringLenOption, nullTermOption, encodingOption, bytesOption, quietOption, jsonOption, timestampOption, diffOption, onlyChangedOption, watchOption, monitorOption);
 
                 if (context.ParseResult.GetValueForOption(readCoilOption) is { } readCoilSpec)
                 {
                     var (addr, cnt) = ParseReadSpec(readCoilSpec, readCountDefault);
+                    ValidateReadRange(addr, cnt, ProtocolLimits.MaxBitsPerRead, "FC01/read-coil");
                     await ExecuteReadLoop(async () => await client.ReadCoilsAsync(addr, cnt), values => RenderBoolValues(addr, values, output), output);
                     return;
                 }
@@ -166,6 +185,7 @@ public static class FlatCommandMode
                 if (context.ParseResult.GetValueForOption(readDiscreteOption) is { } readDiscreteSpec)
                 {
                     var (addr, cnt) = ParseReadSpec(readDiscreteSpec, readCountDefault);
+                    ValidateReadRange(addr, cnt, ProtocolLimits.MaxBitsPerRead, "FC02/read-discrete");
                     await ExecuteReadLoop(async () => await client.ReadDiscreteInputsAsync(addr, cnt), values => RenderBoolValues(addr, values, output), output);
                     return;
                 }
@@ -173,6 +193,7 @@ public static class FlatCommandMode
                 if (context.ParseResult.GetValueForOption(readHoldingOption) is { } readHoldingSpec)
                 {
                     var (addr, cnt) = ParseReadSpec(readHoldingSpec, readCountDefault);
+                    ValidateReadRange(addr, cnt, ProtocolLimits.MaxRegistersPerRead, "FC03/read-holding");
                     await ExecuteReadLoop(async () => await client.ReadHoldingRegistersAsync(addr, cnt), values => RenderRegisterValues(addr, values, output), output);
                     return;
                 }
@@ -180,6 +201,7 @@ public static class FlatCommandMode
                 if (context.ParseResult.GetValueForOption(readInputRegOption) is { } readInputSpec)
                 {
                     var (addr, cnt) = ParseReadSpec(readInputSpec, readCountDefault);
+                    ValidateReadRange(addr, cnt, ProtocolLimits.MaxRegistersPerRead, "FC04/read-inputreg");
                     await ExecuteReadLoop(async () => await client.ReadInputRegistersAsync(addr, cnt), values => RenderRegisterValues(addr, values, output), output);
                     return;
                 }
@@ -245,7 +267,7 @@ public static class FlatCommandMode
             }
             catch (Exception ex)
             {
-                context.Console.Error.Write($"Error: {ex.Message}\n");
+                context.Console.Error.Write($"Error ({ClassifyErrorCategory(ex)}): {FormatErrorMessage(ex)}\n");
                 context.ExitCode = 1;
             }
         });
@@ -366,25 +388,52 @@ public static class FlatCommandMode
 
         if (reference >= 1 && reference <= 9999)
         {
-            return new ReferenceReadRequest(ReferenceType.Coil, (ushort)(reference - 1), count);
+            var address = (ushort)(reference - 1);
+            ValidateReadRange(address, count, ProtocolLimits.MaxBitsPerRead, "FC01/ref");
+            return new ReferenceReadRequest(ReferenceType.Coil, address, count);
         }
 
         if (reference >= 10001 && reference <= 19999)
         {
-            return new ReferenceReadRequest(ReferenceType.Discrete, (ushort)(reference - 10001), count);
+            var address = (ushort)(reference - 10001);
+            ValidateReadRange(address, count, ProtocolLimits.MaxBitsPerRead, "FC02/ref");
+            return new ReferenceReadRequest(ReferenceType.Discrete, address, count);
         }
 
         if (reference >= 30001 && reference <= 39999)
         {
-            return new ReferenceReadRequest(ReferenceType.InputRegister, (ushort)(reference - 30001), count);
+            var address = (ushort)(reference - 30001);
+            ValidateReadRange(address, count, ProtocolLimits.MaxRegistersPerRead, "FC04/ref");
+            return new ReferenceReadRequest(ReferenceType.InputRegister, address, count);
         }
 
         if (reference >= 40001 && reference <= 49999)
         {
-            return new ReferenceReadRequest(ReferenceType.HoldingRegister, (ushort)(reference - 40001), count);
+            var address = (ushort)(reference - 40001);
+            ValidateReadRange(address, count, ProtocolLimits.MaxRegistersPerRead, "FC03/ref");
+            return new ReferenceReadRequest(ReferenceType.HoldingRegister, address, count);
         }
 
         throw new ArgumentException($"Unsupported reference range: {reference}");
+    }
+
+    private static void ValidateReadRange(ushort address, ushort count, int protocolMaxCount, string operationName)
+    {
+        if (count == 0)
+        {
+            throw new ArgumentException($"Invalid count 0 for {operationName}. Count must be at least 1.");
+        }
+
+        if (count > protocolMaxCount)
+        {
+            throw new ArgumentException($"Invalid count {count} for {operationName}. Protocol maximum is {protocolMaxCount}.");
+        }
+
+        var upperAddress = address + count - 1;
+        if (upperAddress > ProtocolLimits.MaxAddress)
+        {
+            throw new ArgumentException($"Invalid range for {operationName}: start={address}, count={count}, upper={upperAddress}. Address limit is {ProtocolLimits.MaxAddress}.");
+        }
     }
 
     private static ushort ParseWord(string value)
@@ -543,6 +592,520 @@ public static class FlatCommandMode
             || target.StartsWith("com", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static async Task ExecuteAnalyzeMode(IModbusClient client)
+    {
+        Console.WriteLine("Analyze mode: probing FC01-FC04 address spaces...");
+        var discoveredSpaces = await DiscoverAllAddressSpacesAsync(client);
+
+        Console.WriteLine();
+        Console.WriteLine("Address-space summary:");
+        foreach (var space in discoveredSpaces)
+        {
+            if (space.MaxAddress >= 0)
+            {
+                Console.WriteLine($"  {space.Spec.CodeLabel}: 0..{space.MaxAddress} ({space.MaxAddress + 1} cells)");
+            }
+            else
+            {
+                Console.WriteLine($"  {space.Spec.CodeLabel}: no readable cells ({space.BoundaryReason ?? "no successful read"})");
+            }
+        }
+
+        var captures = new List<FunctionCodeCapture>();
+        foreach (var space in discoveredSpaces.Where(s => s.MaxAddress >= 0))
+        {
+            var firstSnapshot = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 1, showProgress: true);
+            var secondSnapshot = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 2, showProgress: true);
+            var volatileMask = BuildVolatileMask(firstSnapshot, secondSnapshot);
+            captures.Add(new FunctionCodeCapture(space, secondSnapshot, volatileMask));
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Volatility summary:");
+        foreach (var capture in captures)
+        {
+            var volatileCount = capture.VolatileMask.Count(changed => changed);
+            Console.WriteLine($"  {capture.Space.Spec.CodeLabel}: volatile {volatileCount}/{capture.Values.Length}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Mirror/overlap cross-check:");
+        for (var i = 0; i < captures.Count; i++)
+        {
+            for (var j = i + 1; j < captures.Count; j++)
+            {
+                PrintAddressSpaceComparison(captures[i], captures[j]);
+            }
+        }
+    }
+
+    private static async Task ExecuteScanMode(IModbusClient client, double intervalSeconds)
+    {
+        if (intervalSeconds <= 0)
+        {
+            throw new ArgumentException("--scan interval must be greater than 0.");
+        }
+
+        Console.WriteLine("Scan mode: probing FC01-FC04 address spaces...");
+        var discoveredSpaces = await DiscoverAllAddressSpacesAsync(client);
+
+        var states = new Dictionary<string, ScanState>(StringComparer.Ordinal);
+        foreach (var space in discoveredSpaces.Where(s => s.MaxAddress >= 0))
+        {
+            var initial = await ReadAddressSpaceSnapshotAsync(client, space.Spec, space.MaxAddress, 0, showProgress: true);
+            states[space.Spec.CodeLabel] = new ScanState(space, initial);
+        }
+
+        if (states.Count == 0)
+        {
+            Console.WriteLine("No readable function-code tables were discovered.");
+            return;
+        }
+
+        Console.WriteLine("Starting live scan dashboard (Ctrl+C to stop)...");
+        var cancellationTokenSource = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellationTokenSource.Cancel();
+        };
+
+        var cycle = 0;
+        while (!cancellationTokenSource.IsCancellationRequested)
+        {
+            cycle++;
+            var changedNowByCode = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+
+            foreach (var spec in FunctionCodeSpecs)
+            {
+                if (!states.TryGetValue(spec.CodeLabel, out var state))
+                {
+                    continue;
+                }
+
+                var current = await ReadAddressSpaceSnapshotAsync(client, spec, state.Space.MaxAddress, cycle, showProgress: false);
+                var changedNow = new HashSet<int>();
+                for (var address = 0; address < current.Length; address++)
+                {
+                    if (!string.Equals(current[address], state.PreviousValues[address], StringComparison.Ordinal))
+                    {
+                        changedNow.Add(address);
+                        state.ChangedEver.Add(address);
+                    }
+                }
+
+                changedNowByCode[spec.CodeLabel] = changedNow;
+                state.PreviousValues = current;
+            }
+
+            RenderScanDashboard(states, changedNowByCode, cycle);
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationTokenSource.Token);
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private static async Task<IReadOnlyList<FunctionCodeSpace>> DiscoverAllAddressSpacesAsync(IModbusClient client)
+    {
+        var spaces = new List<FunctionCodeSpace>(FunctionCodeSpecs.Length);
+        foreach (var spec in FunctionCodeSpecs)
+        {
+            spaces.Add(await DiscoverAddressSpaceAsync(client, spec));
+        }
+
+        return spaces;
+    }
+
+    private static async Task<FunctionCodeSpace> DiscoverAddressSpaceAsync(IModbusClient client, FunctionCodeSpec spec)
+    {
+        var probeWindow = Math.Min(ProtocolLimits.InitialProbeWindow, spec.MaxReadCount);
+        var stepSize = Math.Max(1, probeWindow / 2);
+        var probeUpperAddress = Math.Min(ProtocolLimits.MaxAddress, probeWindow - 1);
+
+        var maxSuccessfulAddress = -1;
+        var firstFailedAddress = ProtocolLimits.MaxAddress + 1;
+        string? boundaryReason = null;
+
+        while (probeUpperAddress <= ProtocolLimits.MaxAddress)
+        {
+            var probe = await TryProbeReadUpToAsync(client, spec, probeUpperAddress, probeWindow);
+            WriteProbeProgress(spec, "step", probeUpperAddress, probe, probeWindow);
+            if (probe.Success)
+            {
+                maxSuccessfulAddress = probeUpperAddress;
+                if (probeUpperAddress == ProtocolLimits.MaxAddress)
+                {
+                    break;
+                }
+
+                var nextProbe = (long)probeUpperAddress + stepSize;
+                probeUpperAddress = (int)Math.Min(ProtocolLimits.MaxAddress, nextProbe);
+                continue;
+            }
+
+            firstFailedAddress = probeUpperAddress;
+            boundaryReason = probe.FailureReason;
+            break;
+        }
+
+        if (maxSuccessfulAddress == ProtocolLimits.MaxAddress)
+        {
+            Console.WriteLine($"[{spec.CodeLabel}] discovered: 0..{ProtocolLimits.MaxAddress}");
+            return new FunctionCodeSpace(spec, ProtocolLimits.MaxAddress, null);
+        }
+
+        if (firstFailedAddress == ProtocolLimits.MaxAddress + 1)
+        {
+            firstFailedAddress = ProtocolLimits.MaxAddress;
+        }
+
+        var low = maxSuccessfulAddress + 1;
+        var high = Math.Max(low - 1, firstFailedAddress - 1);
+        while (low <= high)
+        {
+            var mid = low + ((high - low) / 2);
+            var probe = await TryProbeReadUpToAsync(client, spec, mid, probeWindow);
+            WriteProbeProgress(spec, "bisect", mid, probe, probeWindow);
+            if (probe.Success)
+            {
+                maxSuccessfulAddress = mid;
+                low = mid + 1;
+                continue;
+            }
+
+            boundaryReason = probe.FailureReason;
+            high = mid - 1;
+        }
+
+        if (maxSuccessfulAddress >= 0)
+        {
+            Console.WriteLine($"[{spec.CodeLabel}] discovered: 0..{maxSuccessfulAddress}");
+        }
+        else
+        {
+            Console.WriteLine($"[{spec.CodeLabel}] discovered: no readable addresses");
+        }
+
+        return new FunctionCodeSpace(spec, maxSuccessfulAddress, boundaryReason);
+    }
+
+    private static async Task<ProbeReadResult> TryProbeReadUpToAsync(
+        IModbusClient client,
+        FunctionCodeSpec spec,
+        int upperAddress,
+        int probeWindow)
+    {
+        var startAddress = Math.Max(0, upperAddress - probeWindow + 1);
+        var count = upperAddress - startAddress + 1;
+        ValidateReadRange((ushort)startAddress, (ushort)count, spec.MaxReadCount, spec.CodeLabel);
+
+        try
+        {
+            await spec.ProbeReadAsync(client, (ushort)startAddress, (ushort)count);
+            return new ProbeReadResult(startAddress, count, Success: true, FailureReason: null);
+        }
+        catch (Exception ex)
+        {
+            var category = ClassifyErrorCategory(ex);
+            if (category is not CliErrorCategory.ModbusDevice)
+            {
+                throw new InvalidOperationException(
+                    $"Probe for {spec.CodeLabel} at start={startAddress}, count={count} failed due to {category} error.",
+                    ex);
+            }
+
+            return new ProbeReadResult(startAddress, count, Success: false, FailureReason: FormatErrorMessage(ex));
+        }
+    }
+
+    private static async Task<string[]> ReadAddressSpaceSnapshotAsync(
+        IModbusClient client,
+        FunctionCodeSpec spec,
+        int maxAddress,
+        int pass,
+        bool showProgress)
+    {
+        if (maxAddress < 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var values = new string[maxAddress + 1];
+        var total = maxAddress + 1;
+        for (var startAddress = 0; startAddress <= maxAddress; startAddress += spec.MaxReadCount)
+        {
+            var count = Math.Min(spec.MaxReadCount, (maxAddress - startAddress) + 1);
+            var chunk = await spec.ReadValuesAsync(client, (ushort)startAddress, (ushort)count);
+            if (chunk.Length < count)
+            {
+                throw new InvalidOperationException($"{spec.CodeLabel} snapshot read returned {chunk.Length} values, expected {count}.");
+            }
+
+            Array.Copy(chunk, 0, values, startAddress, count);
+
+            if (showProgress)
+            {
+                var completed = Math.Min(total, startAddress + count);
+                Console.WriteLine($"[{spec.CodeLabel}] pass {pass}: {completed}/{total}");
+            }
+        }
+
+        return values;
+    }
+
+    private static bool[] BuildVolatileMask(string[] firstSnapshot, string[] secondSnapshot)
+    {
+        var length = Math.Min(firstSnapshot.Length, secondSnapshot.Length);
+        var volatileMask = new bool[length];
+        for (var i = 0; i < length; i++)
+        {
+            volatileMask[i] = !string.Equals(firstSnapshot[i], secondSnapshot[i], StringComparison.Ordinal);
+        }
+
+        return volatileMask;
+    }
+
+    private static void PrintAddressSpaceComparison(FunctionCodeCapture left, FunctionCodeCapture right)
+    {
+        var overlapMaxAddress = Math.Min(left.Space.MaxAddress, right.Space.MaxAddress);
+        if (overlapMaxAddress < 0)
+        {
+            Console.WriteLine($"  {left.Space.Spec.CodeLabel} vs {right.Space.Spec.CodeLabel}: no address overlap");
+            return;
+        }
+
+        var comparableCount = 0;
+        var equalCount = 0;
+        for (var address = 0; address <= overlapMaxAddress; address++)
+        {
+            if (address >= left.VolatileMask.Length || address >= right.VolatileMask.Length)
+            {
+                break;
+            }
+
+            if (left.VolatileMask[address] || right.VolatileMask[address])
+            {
+                continue;
+            }
+
+            comparableCount++;
+            if (string.Equals(left.Values[address], right.Values[address], StringComparison.Ordinal))
+            {
+                equalCount++;
+            }
+        }
+
+        if (comparableCount == 0)
+        {
+            Console.WriteLine($"  {left.Space.Spec.CodeLabel} vs {right.Space.Spec.CodeLabel}: overlap 0..{overlapMaxAddress}, but no stable cells to compare");
+            return;
+        }
+
+        var equalRatio = (double)equalCount / comparableCount;
+        var verdict = equalRatio switch
+        {
+            >= 0.95 => "likely mirrored",
+            >= 0.60 => "partial overlap",
+            _ => "no strong mirror"
+        };
+
+        Console.WriteLine($"  {left.Space.Spec.CodeLabel} vs {right.Space.Spec.CodeLabel}: overlap 0..{overlapMaxAddress}, stable={comparableCount}, equal={equalCount} ({equalRatio:P1}) => {verdict}");
+    }
+
+    private static void RenderScanDashboard(
+        IReadOnlyDictionary<string, ScanState> states,
+        IReadOnlyDictionary<string, HashSet<int>> changedNowByCode,
+        int cycle)
+    {
+        Console.Clear();
+        Console.WriteLine($"Scan dashboard | {DateTimeOffset.Now:O} | cycle {cycle}");
+
+        var columnHeaders = new List<string>(FunctionCodeSpecs.Length);
+        foreach (var spec in FunctionCodeSpecs)
+        {
+            if (states.TryGetValue(spec.CodeLabel, out var state))
+            {
+                columnHeaders.Add($"{spec.CodeLabel} 0..{state.Space.MaxAddress} tracked={state.ChangedEver.Count}");
+            }
+            else
+            {
+                columnHeaders.Add($"{spec.CodeLabel} unsupported");
+            }
+        }
+
+        const int columnWidth = 32;
+        Console.WriteLine(string.Join(" | ", columnHeaders.Select(h => PadCell(h, columnWidth))));
+
+        var rowsByColumn = new List<string>[FunctionCodeSpecs.Length];
+        for (var i = 0; i < FunctionCodeSpecs.Length; i++)
+        {
+            var spec = FunctionCodeSpecs[i];
+            if (!states.TryGetValue(spec.CodeLabel, out var state))
+            {
+                rowsByColumn[i] = new List<string> { "(n/a)" };
+                continue;
+            }
+
+            if (state.ChangedEver.Count == 0)
+            {
+                rowsByColumn[i] = new List<string> { "(no changes yet)" };
+                continue;
+            }
+
+            changedNowByCode.TryGetValue(spec.CodeLabel, out var changedNow);
+            var rows = state.ChangedEver
+                .OrderBy(address => address)
+                .Select(address =>
+                {
+                    var marker = changedNow is not null && changedNow.Contains(address) ? "*" : " ";
+                    return $"{marker}{address}:{state.PreviousValues[address]}";
+                })
+                .ToList();
+
+            rowsByColumn[i] = rows;
+        }
+
+        var maxRows = rowsByColumn.Max(rows => rows.Count);
+        for (var rowIndex = 0; rowIndex < maxRows; rowIndex++)
+        {
+            var row = new string[FunctionCodeSpecs.Length];
+            for (var columnIndex = 0; columnIndex < FunctionCodeSpecs.Length; columnIndex++)
+            {
+                var columnRows = rowsByColumn[columnIndex];
+                var text = rowIndex < columnRows.Count ? columnRows[rowIndex] : string.Empty;
+                row[columnIndex] = PadCell(text, columnWidth);
+            }
+
+            Console.WriteLine(string.Join(" | ", row));
+        }
+    }
+
+    private static void WriteProbeProgress(FunctionCodeSpec spec, string phase, int upperAddress, ProbeReadResult probe, int window)
+    {
+        var status = probe.Success ? "ok" : $"fail ({probe.FailureReason})";
+        Console.WriteLine($"[{spec.CodeLabel}] {phase} upper={upperAddress} start={probe.StartAddress} count={probe.Count} window={window}: {status}");
+    }
+
+    private static string PadCell(string value, int width)
+    {
+        if (value.Length <= width)
+        {
+            return value.PadRight(width);
+        }
+
+        if (width <= 3)
+        {
+            return value[..width];
+        }
+
+        return $"{value[..(width - 3)]}...";
+    }
+
+    private static CliErrorCategory ClassifyErrorCategory(Exception ex)
+    {
+        var root = GetRootCause(ex);
+        if (root is ModbusException modbusException)
+        {
+            return modbusException.ExceptionCode is 10 or 11
+                ? CliErrorCategory.Gateway
+                : CliErrorCategory.ModbusDevice;
+        }
+
+        if (root is TimeoutException or IOException or SocketException)
+        {
+            return CliErrorCategory.Network;
+        }
+
+        if (root is ArgumentException or FormatException or OverflowException)
+        {
+            return CliErrorCategory.Parameter;
+        }
+
+        return CliErrorCategory.Runtime;
+    }
+
+    private static string FormatErrorMessage(Exception ex)
+    {
+        var root = GetRootCause(ex);
+        if (root is ModbusException modbusException)
+        {
+            var codeName = DescribeModbusExceptionCode(modbusException.ExceptionCode);
+            return $"{root.Message} (exception-code {modbusException.ExceptionCode}: {codeName})";
+        }
+
+        return root.Message;
+    }
+
+    private static Exception GetRootCause(Exception ex)
+    {
+        var current = ex;
+        while (current.InnerException is not null)
+        {
+            current = current.InnerException;
+        }
+
+        return current;
+    }
+
+    private static string DescribeModbusExceptionCode(int code)
+    {
+        return code switch
+        {
+            1 => "ILLEGAL_FUNCTION",
+            2 => "ILLEGAL_DATA_ADDRESS",
+            3 => "ILLEGAL_DATA_VALUE",
+            4 => "SERVER_DEVICE_FAILURE",
+            5 => "ACKNOWLEDGE",
+            6 => "SERVER_DEVICE_BUSY",
+            8 => "MEMORY_PARITY_ERROR",
+            10 => "GATEWAY_PATH_UNAVAILABLE",
+            11 => "GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND",
+            _ => "UNKNOWN"
+        };
+    }
+
+    private static async Task ProbeReadCoilsAsync(IModbusClient client, ushort startAddress, ushort count)
+        => _ = await client.ReadCoilsAsync(startAddress, count);
+
+    private static async Task ProbeReadDiscreteAsync(IModbusClient client, ushort startAddress, ushort count)
+        => _ = await client.ReadDiscreteInputsAsync(startAddress, count);
+
+    private static async Task ProbeReadHoldingAsync(IModbusClient client, ushort startAddress, ushort count)
+        => _ = await client.ReadHoldingRegistersAsync(startAddress, count);
+
+    private static async Task ProbeReadInputAsync(IModbusClient client, ushort startAddress, ushort count)
+        => _ = await client.ReadInputRegistersAsync(startAddress, count);
+
+    private static async Task<string[]> ReadCoilsAsStringsAsync(IModbusClient client, ushort startAddress, ushort count)
+    {
+        var values = await client.ReadCoilsAsync(startAddress, count);
+        return values.Select(value => value ? "1" : "0").ToArray();
+    }
+
+    private static async Task<string[]> ReadDiscreteAsStringsAsync(IModbusClient client, ushort startAddress, ushort count)
+    {
+        var values = await client.ReadDiscreteInputsAsync(startAddress, count);
+        return values.Select(value => value ? "1" : "0").ToArray();
+    }
+
+    private static async Task<string[]> ReadHoldingAsStringsAsync(IModbusClient client, ushort startAddress, ushort count)
+    {
+        var values = await client.ReadHoldingRegistersAsync(startAddress, count);
+        return values.Select(value => value.ToString(CultureInfo.InvariantCulture)).ToArray();
+    }
+
+    private static async Task<string[]> ReadInputAsStringsAsync(IModbusClient client, ushort startAddress, ushort count)
+    {
+        var values = await client.ReadInputRegistersAsync(startAddress, count);
+        return values.Select(value => value.ToString(CultureInfo.InvariantCulture)).ToArray();
+    }
+
     private static OutputOptions BuildOutputOptions(
         InvocationContext context,
         Option<bool> boolOption,
@@ -658,7 +1221,9 @@ public static class FlatCommandMode
 
         if (output.OnlyChanged)
         {
-            return changed.Select(x => x.line);
+            return changed.Length == 0
+                ? new[] { "(no changes)" }
+                : changed.Select(x => x.line);
         }
 
         var changedIndexes = changed.Select(x => x.i).ToHashSet();
@@ -775,6 +1340,58 @@ public static class FlatCommandMode
         }
 
         return bytes;
+    }
+
+    private static readonly FunctionCodeSpec[] FunctionCodeSpecs =
+    {
+        new("FC01", ProtocolLimits.MaxBitsPerRead, ProbeReadCoilsAsync, ReadCoilsAsStringsAsync),
+        new("FC02", ProtocolLimits.MaxBitsPerRead, ProbeReadDiscreteAsync, ReadDiscreteAsStringsAsync),
+        new("FC03", ProtocolLimits.MaxRegistersPerRead, ProbeReadHoldingAsync, ReadHoldingAsStringsAsync),
+        new("FC04", ProtocolLimits.MaxRegistersPerRead, ProbeReadInputAsync, ReadInputAsStringsAsync)
+    };
+
+    private sealed record FunctionCodeSpec(
+        string CodeLabel,
+        int MaxReadCount,
+        Func<IModbusClient, ushort, ushort, Task> ProbeReadAsync,
+        Func<IModbusClient, ushort, ushort, Task<string[]>> ReadValuesAsync);
+
+    private sealed record FunctionCodeSpace(FunctionCodeSpec Spec, int MaxAddress, string? BoundaryReason);
+
+    private sealed record FunctionCodeCapture(FunctionCodeSpace Space, string[] Values, bool[] VolatileMask);
+
+    private sealed record ProbeReadResult(int StartAddress, int Count, bool Success, string? FailureReason);
+
+    private sealed class ScanState
+    {
+        public ScanState(FunctionCodeSpace space, string[] previousValues)
+        {
+            Space = space;
+            PreviousValues = previousValues;
+        }
+
+        public FunctionCodeSpace Space { get; }
+
+        public string[] PreviousValues { get; set; }
+
+        public HashSet<int> ChangedEver { get; } = new();
+    }
+
+    private static class ProtocolLimits
+    {
+        public const int MaxAddress = ushort.MaxValue;
+        public const int InitialProbeWindow = 256;
+        public const int MaxBitsPerRead = 2000;
+        public const int MaxRegistersPerRead = 125;
+    }
+
+    private enum CliErrorCategory
+    {
+        Parameter,
+        Network,
+        Gateway,
+        ModbusDevice,
+        Runtime
     }
 
     private enum ReferenceType
