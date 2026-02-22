@@ -21,7 +21,7 @@ Status values:
 | `--count` | Implemented | Read count supported; overridden by `SPEC` suffix count. |
 | `--data` | Implemented | Core write payload input. |
 | `--databits` | Implemented | Applied to serial RTU channel configuration. |
-| `--diff` | Partial | Basic changed-line highlighting in watch/monitor loop. |
+| `--diff` | Implemented | Changed-line highlighting in watch/monitor loops. |
 | `--encoding` | Implemented | String decode encoding selector. |
 | `--f32` | Planned | Parsing milestone only. |
 | `--f64` | Planned | Parsing milestone only. |
@@ -36,7 +36,7 @@ Status values:
 | `--null-term` | Implemented | Null-terminated string decode behavior. |
 | `--off` | Implemented | Convenience single-coil write OFF. |
 | `--on` | Implemented | Convenience single-coil write ON. |
-| `--only-changed` | Partial | Filters watch/monitor output to changed lines. |
+| `--only-changed` | Implemented | Filters watch/monitor output to changed lines. |
 | `--parity` | Implemented | Applied to serial RTU channel configuration. |
 | `--port` | Implemented | TCP port selection. |
 | `--quiet` | Implemented | Minimal line output mode. |
