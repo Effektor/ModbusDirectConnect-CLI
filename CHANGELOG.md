@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0-rc.4](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.0-rc.3...v2.3.0-rc.4) (2026-02-22)
+
+
+### Bug Fixes
+
+* Make scan hot/cold cadence explicit and incremental ([deef1cc](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/deef1cc895f52a5bfbd8b590e03096a9290ff817))
+
 ## [2.3.0-rc.3](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.0-rc.2...v2.3.0-rc.3) (2026-02-22)
 
 
