@@ -1,0 +1,62 @@
+# bash completion for mbdc
+# Installed by Debian package to /usr/share/bash-completion/completions/mbdc
+
+_mbdc()
+{
+    local cur prev first_word
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # First non-option token is TARGET.
+    first_word=""
+    local i word
+    for (( i=1; i<${#COMP_WORDS[@]}; i++ )); do
+        word="${COMP_WORDS[i]}"
+        if [[ "${word}" != -* ]]; then
+            first_word="${word}"
+            break
+        fi
+    done
+
+    case "${prev}" in
+        --protocol|-P)
+            COMPREPLY=( $(compgen -W "tcp rtu-tcp rtu-serial" -- "${cur}") )
+            return 0
+            ;;
+        --parity)
+            COMPREPLY=( $(compgen -W "N E O" -- "${cur}") )
+            return 0
+            ;;
+        --databits|--data-bits)
+            COMPREPLY=( $(compgen -W "7 8" -- "${cur}") )
+            return 0
+            ;;
+        --stopbits|--stop-bits)
+            COMPREPLY=( $(compgen -W "1 2" -- "${cur}") )
+            return 0
+            ;;
+        --serial|--serial-port)
+            COMPREPLY=( $(compgen -f -- "${cur}") )
+            return 0
+            ;;
+    esac
+
+    # Option completion from runtime help so flags stay in sync.
+    if [[ "${cur}" == -* ]]; then
+        local options
+        options="$(mbdc --help 2>/dev/null | grep -Eo -- '(^|[[:space:],])--[a-z0-9][a-z0-9-]*' | tr -d ' ,' | sort -u)"
+        COMPREPLY=( $(compgen -W "${options}" -- "${cur}") )
+        return 0
+    fi
+
+    # Complete TARGET only if no TARGET has been provided yet.
+    if [[ -z "${first_word}" || ${COMP_CWORD} -eq 1 ]]; then
+        local hosts serials
+        hosts="$(awk '/^[^#]/ {print $1}' /etc/hosts 2>/dev/null | sort -u)"
+        serials="$(compgen -G '/dev/tty*' | tr '\n' ' ')"
+        COMPREPLY=( $(compgen -W "${hosts} ${serials}" -- "${cur}") )
+    fi
+}
+
+complete -F _mbdc mbdc
