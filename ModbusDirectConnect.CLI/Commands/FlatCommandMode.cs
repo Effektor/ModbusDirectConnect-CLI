@@ -658,7 +658,6 @@ public static class FlatCommandMode
         var states = FunctionCodeSpecs.ToDictionary(spec => spec.CodeLabel, spec => new ScanState(spec), StringComparer.Ordinal);
 
         Console.WriteLine("Starting live scan dashboard (Ctrl+C to stop)...");
-        RenderScanDashboard(states, new Dictionary<string, HashSet<int>>(StringComparer.Ordinal), 0);
         var cancellationTokenSource = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
         {
@@ -666,7 +665,7 @@ public static class FlatCommandMode
             cancellationTokenSource.Cancel();
         };
 
-        var cycle = 0;
+        var cycle = -1;
         while (!cancellationTokenSource.IsCancellationRequested)
         {
             cycle++;
@@ -812,6 +811,13 @@ public static class FlatCommandMode
                 continue;
             }
 
+            if (!state.HasBaseline[address])
+            {
+                state.PreviousValues[address] = current;
+                state.HasBaseline[address] = true;
+                continue;
+            }
+
             var previous = state.PreviousValues[address];
             if (!string.Equals(current, previous, StringComparison.Ordinal))
             {
@@ -839,6 +845,13 @@ public static class FlatCommandMode
 
             if (string.Equals(current, SnapshotUnreadableValue, StringComparison.Ordinal))
             {
+                continue;
+            }
+
+            if (!state.HasBaseline[address])
+            {
+                state.PreviousValues[address] = current;
+                state.HasBaseline[address] = true;
                 continue;
             }
 
@@ -929,6 +942,10 @@ public static class FlatCommandMode
         var expanded = Enumerable.Repeat(SnapshotUnreadableValue, requiredLength).ToArray();
         Array.Copy(state.PreviousValues, expanded, state.PreviousValues.Length);
         state.PreviousValues = expanded;
+
+        var expandedBaseline = new bool[requiredLength];
+        Array.Copy(state.HasBaseline, expandedBaseline, state.HasBaseline.Length);
+        state.HasBaseline = expandedBaseline;
     }
 
     private static async Task<IReadOnlyList<FunctionCodeSpace>> DiscoverAllAddressSpacesAsync(IModbusClient client, TransportKind transportKind)
@@ -1778,6 +1795,8 @@ public static class FlatCommandMode
         public int MaxDiscoveredAddress { get; set; } = -1;
 
         public string[] PreviousValues { get; set; }
+
+        public bool[] HasBaseline { get; set; } = Array.Empty<bool>();
 
         public int LastColdSweepCycle { get; set; } = -1;
 
