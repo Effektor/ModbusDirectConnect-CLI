@@ -32,6 +32,19 @@ sudo ln -sf /usr/local/lib/mbdc/mbdc /usr/local/bin/mbdc
 mbdc --version
 ```
 
+### Debian/Ubuntu (.deb with Bash completion)
+```bash
+# choose the matching architecture package:
+#   mbdc_<version>_amd64.deb or mbdc_<version>_arm64.deb
+sudo dpkg -i mbdc_<version>_amd64.deb
+mbdc --version
+```
+
+The Debian package installs Bash completion to:
+`/usr/share/bash-completion/completions/mbdc`
+
+Open a new shell (or run `source /usr/share/bash-completion/completions/mbdc`) to activate completion immediately.
+
 ### macOS
 ```bash
 tar -xzf mbdc-macos-x64.tar.gz
