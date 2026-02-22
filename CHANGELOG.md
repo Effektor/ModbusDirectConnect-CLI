@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.0-rc.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.0-rc...v2.3.0-rc.1) (2026-02-22)
+
+
+### Features
+
+* add bash tab completion in deb package ([b0990e3](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/b0990e31f911ac7c43a883e3accab1df90804c4e))
+* add bash tab completion to deb install ([16dda85](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/16dda853a7d46abe04ff57c63d123626d8361a46))
+
+
+### Bug Fixes
+
+* classify probe errors by transport and tolerate frame failures ([c401a71](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/c401a7101bb7b68ebc24a4e5473b5b5abe4264aa))
+* keep analyze probing resilient and transport-aware ([db55eb8](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/db55eb8b924fec614bc05ff63b38aeafab97502e))
+
 ## [2.3.0-rc](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.2.2...v2.3.0-rc) (2026-02-22)
 
 
