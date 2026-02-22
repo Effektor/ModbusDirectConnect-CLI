@@ -1318,14 +1318,48 @@ public static class FlatCommandMode
             }
 
             changedNowByCode.TryGetValue(spec.CodeLabel, out var changedNow);
-            var rows = state.ChangedEver
-                .OrderBy(address => address)
-                .Select(address =>
-                {
-                    var marker = changedNow is not null && changedNow.Contains(address) ? "*" : " ";
-                    return $"{marker}{address}:{state.PreviousValues[address]}";
-                })
-                .ToList();
+            List<string> rows;
+            if (string.Equals(spec.CodeLabel, "FC01", StringComparison.Ordinal) ||
+                string.Equals(spec.CodeLabel, "FC02", StringComparison.Ordinal))
+            {
+                var changedRowStarts = changedNow is null
+                    ? new HashSet<int>()
+                    : changedNow.Select(address => (address / 8) * 8).ToHashSet();
+
+                rows = state.ChangedEver
+                    .Select(address => (address / 8) * 8)
+                    .Distinct()
+                    .OrderBy(start => start)
+                    .Select(rowStart =>
+                    {
+                        var marker = changedRowStarts.Contains(rowStart) ? "*" : " ";
+                        var bits = Enumerable.Range(0, 8)
+                            .Select(offset =>
+                            {
+                                var address = rowStart + offset;
+                                if (address > state.MaxDiscoveredAddress || address >= state.PreviousValues.Length)
+                                {
+                                    return "-";
+                                }
+
+                                return state.PreviousValues[address];
+                            });
+
+                        return $"{marker}{rowStart}:[ {string.Join(" ", bits)} ]";
+                    })
+                    .ToList();
+            }
+            else
+            {
+                rows = state.ChangedEver
+                    .OrderBy(address => address)
+                    .Select(address =>
+                    {
+                        var marker = changedNow is not null && changedNow.Contains(address) ? "*" : " ";
+                        return $"{marker}{address}:{state.PreviousValues[address]}";
+                    })
+                    .ToList();
+            }
 
             rowsByColumn[i] = rows;
         }
