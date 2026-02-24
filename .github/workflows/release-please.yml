@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
@@ -87,7 +87,7 @@ jobs:
     name: Publish CLI (${{ matrix.rid }})
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
@@ -266,7 +266,7 @@ jobs:
     name: Package PowerShell Module
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -293,7 +293,7 @@ jobs:
     name: Upload Release Assets
     needs: [release-please, publish-cli, package-powershell-module]
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -345,7 +345,7 @@ jobs:
     name: Publish PowerShell Module to PSGallery
     needs: [release-please, upload-release-assets]
     if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_PSGALLERY_PUBLISH == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -403,7 +403,7 @@ jobs:
     name: Publish Chocolatey Package
     needs: [release-please, upload-release-assets]
     if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_CHOCOLATEY_PUBLISH == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
@@ -485,7 +485,7 @@ jobs:
     name: Publish Debian Packages to Repo (Disabled)
     needs: [release-please, upload-release-assets]
     if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_DEB_REPO_PUBLISH == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
