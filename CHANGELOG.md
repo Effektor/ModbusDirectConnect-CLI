@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.0](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.3...v2.4.0) (2026-02-24)
+
+
+### Features
+
+* **powershell:** run module directly on mbdc runtime ([ac39ee4](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/ac39ee4d9253d96015759c27604d4d956cabc6ed))
+* **powershell:** run module directly on mbdc runtime ([fa4ab8d](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/fa4ab8da9f1a60dbf490639a04037570e81b9fdd))
+
 ## [2.3.3](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.2...v2.3.3) (2026-02-24)
 
 
