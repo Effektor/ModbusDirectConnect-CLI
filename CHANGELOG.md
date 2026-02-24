@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.2](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.1...v2.3.2) (2026-02-24)
+
+
+### Miscellaneous Chores
+
+* trigger ci to publish ([f6dd6df](https://github.com/Effektor/ModbusDirectConnect-CLI/commit/f6dd6df96355003c7c00c1f046f96536e538d62f))
+
 ## [2.3.1](https://github.com/Effektor/ModbusDirectConnect-CLI/compare/v2.3.0...v2.3.1) (2026-02-24)
 
 
