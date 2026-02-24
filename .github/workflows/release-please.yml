@@ -353,12 +353,14 @@ jobs:
       - name: Download PowerShell module asset
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ./dist
           gh release download "${RELEASE_TAG}" \
+            --repo "${GH_REPO}" \
             -p "ModbusDirectConnect-PowerShell.zip" \
             -D ./dist
 
@@ -425,21 +427,21 @@ jobs:
       - name: Download Windows release asset
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p ./dist
           gh release download "${RELEASE_TAG}" \
+            --repo "${GH_REPO}" \
             -p "mbdc-windows-x64.zip" \
             -D ./dist
 
       - name: Setup NuGet CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          dotnet tool update --global NuGet.CommandLine --version 6.*
-          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+        uses: NuGet/setup-nuget@v2
+        with:
+          nuget-version: '6.x'
 
       - name: Build Chocolatey package
         env:
