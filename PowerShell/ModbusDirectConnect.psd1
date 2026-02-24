@@ -18,10 +18,12 @@
     Copyright = '(c) 2026 Effektor. All rights reserved.'
     
     # Description of the functionality provided by this module
-    Description = 'PowerShell module for ModbusDirectConnect CLI - A command-line tool for Modbus communication'
+    Description = 'PowerShell module for ModbusDirectConnect with direct .NET runtime access for TCP/IP, RTU-over-TCP, and serial COM/tty targets'
     
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion = '5.1'
+    PowerShellVersion = '7.2'
+
+    CompatiblePSEditions = @('Core')
     
     # Functions to export from this module
     FunctionsToExport = @(

@@ -149,6 +149,7 @@ mbdc 192.168.1.10 --write-multi-reg 10 --data 1,2,3,4
 ## PowerShell Module
 
 A PowerShell module is available as `ModbusDirectConnect-PowerShell.zip` in Releases.
+The module ships with the managed runtime DLLs and calls the .NET API directly (it does not shell out to `mbdc`).
 
 It provides cmdlets such as:
 - `Get-ModbusCoil`

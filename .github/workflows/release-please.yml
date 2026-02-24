@@ -274,9 +274,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          source-url: https://nuget.pkg.github.com/effektor/index.json
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.PKGFEED || github.token }}
+
       - name: Create PowerShell module package
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p ./release-assets/ModbusDirectConnect
+          dotnet publish ModbusDirectConnect.CLI/ModbusDirectConnect.CLI.csproj \
+            --configuration Release \
+            --framework net10.0 \
+            --self-contained false \
+            -p:UseAppHost=false \
+            --output ./release-assets/ModbusDirectConnect/lib
           cp -r ./PowerShell/* ./release-assets/ModbusDirectConnect/
           cp ./LICENSE ./release-assets/ModbusDirectConnect/
           cp ./README.md ./release-assets/ModbusDirectConnect/
