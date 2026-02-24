@@ -9,16 +9,16 @@
     GUID = 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d'
     
     # Author of this module
-    Author = 'Effektor'
+    Author = 'Effektor Teknik AB'
     
     # Company or vendor of this module
-    CompanyName = 'Effektor'
+    CompanyName = 'Effektor Teknik AB'
     
     # Copyright statement for this module
-    Copyright = '(c) 2026 Effektor. All rights reserved.'
+    Copyright = '(c) 2026 Effektor Teknik AB. All rights reserved.'
     
     # Description of the functionality provided by this module
-    Description = 'PowerShell module for ModbusDirectConnect with direct .NET runtime access for TCP/IP, RTU-over-TCP, and serial COM/tty targets'
+    Description = 'PowerShell module for Modbus access for TCP/IP, RTU-over-TCP, and serial COM/tty targets'
     
     # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '7.2'
@@ -50,7 +50,7 @@
     PrivateData = @{
         PSData = @{
             # Tags applied to this module
-            Tags = @('Modbus', 'TCP', 'RTU', 'Industrial', 'Automation', 'CLI')
+            Tags = @('Modbus', 'TCP', 'RTU', 'Industrial', 'Automation', 'CLI', 'RS-485')
             
             # A URL to the license for this module
             LicenseUri = 'https://github.com/Effektor/ModbusDirectConnect-CLI/blob/main/LICENSE'
