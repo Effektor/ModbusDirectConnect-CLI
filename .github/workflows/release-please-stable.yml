@@ -1,0 +1,91 @@
+name: Promote Stable Release
+
+on:
+  push:
+    tags:
+      - release
+      - release-*
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  promote-stable:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release-as commit on main
+        id: promote
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --tags --force
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag_sha="${GITHUB_SHA}"
+            main_sha="$(git rev-parse origin/main)"
+            if [ "${tag_sha}" != "${main_sha}" ]; then
+              echo "::error::Release tag must point at current origin/main. tag=${tag_sha} main=${main_sha}"
+              exit 1
+            fi
+          fi
+
+          rc_version="$(sed -nE 's/^[[:space:]]*"\\."[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' .release-please-manifest.json | head -n1)"
+          version_file="$(tr -d '[:space:]' < VERSION)"
+
+          if [ -z "${rc_version}" ]; then
+            echo "::error::Could not read version from .release-please-manifest.json"
+            exit 1
+          fi
+
+          if [ "${rc_version}" != "${version_file}" ]; then
+            echo "::error::Version mismatch between manifest (${rc_version}) and VERSION (${version_file})"
+            exit 1
+          fi
+
+          stable_version="${rc_version%%-*}"
+          if ! [[ "${stable_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Derived stable version '${stable_version}' is not semver X.Y.Z"
+            exit 1
+          fi
+
+          if git ls-remote --tags origin "refs/tags/v${stable_version}" | grep -q "refs/tags/v${stable_version}$"; then
+            echo "stable_exists=true" >> "${GITHUB_OUTPUT}"
+            echo "stable_version=${stable_version}" >> "${GITHUB_OUTPUT}"
+            echo "Stable tag v${stable_version} already exists; skipping promotion commit."
+            exit 0
+          fi
+
+          git checkout -B main origin/main
+
+          if git log -1 --pretty=%B | grep -Eiq "^release-as:[[:space:]]*${stable_version}$"; then
+            echo "stable_exists=true" >> "${GITHUB_OUTPUT}"
+            echo "stable_version=${stable_version}" >> "${GITHUB_OUTPUT}"
+            echo "Latest main commit already requests release-as ${stable_version}; skipping duplicate promotion commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: release v${stable_version}" -m "release-as: ${stable_version}"
+          git push origin HEAD:main
+
+          echo "stable_exists=false" >> "${GITHUB_OUTPUT}"
+          echo "stable_version=${stable_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Trigger release-please workflow on main
+        if: steps.promote.outputs.stable_exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run release-please.yml --ref main
+          echo "Triggered release-please.yml for stable v${{ steps.promote.outputs.stable_version }}"

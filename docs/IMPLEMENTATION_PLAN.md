@@ -15,6 +15,7 @@
 ## CI/CD Model
 - `.github/workflows/build-and-release.yml`: build + test only (PRs/pushes).
 - `.github/workflows/release-please.yml`: release PR/versioning and release asset publishing.
+- `.github/workflows/release-please-stable.yml`: stable release promotion trigger, creates `release-as` commit from current RC version and dispatches `.github/workflows/release-please.yml` (single version source of truth), triggered by `release` or `release-*` tag push.
 
 ## Delivery Principle
 - Features may remain `Planned`/`Partial` without blocking releases.
