@@ -6,9 +6,6 @@
       "release-type": "simple",
       "version-file": "VERSION",
       "changelog-path": "CHANGELOG.md",
-      "prerelease" : true,
-      "prerelease-type" : "rc",
-      "versioning" : "prerelease",
       "extra-files": [
         {
           "type": "xml",
