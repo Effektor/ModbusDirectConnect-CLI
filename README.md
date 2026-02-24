@@ -4,33 +4,8 @@
 
 It is built for fast troubleshooting and day-to-day field usage.
 
-## Download
-
-Download prebuilt binaries from GitHub Releases:
-- https://github.com/Effektor/ModbusDirectConnect-CLI/releases
-
-Release assets:
-- `mbdc-linux-amd64.tar.gz`
-- `mbdc-linux-arm64.tar.gz`
-- `mbdc-macos-x64.tar.gz`
-- `mbdc-windows-x64.zip`
-- `mbdc_<version>_amd64.deb`
-- `mbdc_<version>_arm64.deb`
-- `ModbusDirectConnect-PowerShell.zip` (PowerShell module package)
 
 ## Install
-
-### Linux
-```bash
-# for x86_64 / amd64 use mbdc-linux-amd64.tar.gz
-# for ARM64 use mbdc-linux-arm64.tar.gz
-tar -xzf mbdc-linux-amd64.tar.gz
-chmod +x mbdc
-sudo mkdir -p /usr/local/lib/mbdc
-sudo mv mbdc libSystem.IO.Ports.Native.so /usr/local/lib/mbdc/
-sudo ln -sf /usr/local/lib/mbdc/mbdc /usr/local/bin/mbdc
-mbdc --version
-```
 
 ### Debian/Ubuntu (.deb with Bash completion)
 ```bash
@@ -39,11 +14,6 @@ mbdc --version
 sudo dpkg -i mbdc_<version>_amd64.deb
 mbdc --version
 ```
-
-The Debian package installs Bash completion to:
-`/usr/share/bash-completion/completions/mbdc`
-
-Open a new shell (or run `source /usr/share/bash-completion/completions/mbdc`) to activate completion immediately.
 
 ### macOS
 ```bash
@@ -71,7 +41,7 @@ mbdc [TARGET] [TRANSPORT OPTIONS] [OPERATION] [DATA/OUTPUT OPTIONS]
 - Exactly one operation is required per command.
 - `SPEC` accepts `ADDR` or `ADDR:COUNT`.
 
-## What Works Today
+## Basic usage
 
 - Modbus TCP reads/writes
 - Modbus RTU-over-TCP reads/writes
@@ -148,9 +118,9 @@ mbdc 192.168.1.10 --write-multi-reg 10 --data 1,2,3,4
 
 ## PowerShell Module
 
-A PowerShell module is available as `ModbusDirectConnect-PowerShell.zip` in Releases.
+A PowerShell module is also available.
 
-It provides cmdlets such as:
+Cmdlets:
 - `Get-ModbusCoil`
 - `Get-ModbusDiscreteInput`
 - `Get-ModbusHoldingRegister`
@@ -160,8 +130,8 @@ It provides cmdlets such as:
 
 ## Current Limitations
 
-- Modbus ASCII (`--ascii`) is reserved and currently returns not implemented.
-- Coil write routes are parsed (`--write-coil`, `--write-multi-coil`) but not available in the current library runtime.
+- Modbus ASCII (`--ascii`) is not yet implemented (I don't have access to any devices for testing).
+- Coil writes (`--write-coil`, `--write-multi-coil`) are not yet implemented.
 - Some advanced decode/format flags are accepted as milestones but are not fully implemented yet.
 
 ## Help

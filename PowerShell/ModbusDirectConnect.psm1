@@ -1,490 +1,439 @@
 # ModbusDirectConnect PowerShell Module
-# This module provides PowerShell cmdlets for the ModbusDirectConnect CLI
+# Lightweight cmdlets backed by the ModbusDirectConnect .NET runtime.
 
-# Get the path to the mbdc executable
-$script:ModbusCliPath = $null
+$script:ModbusRuntimePath = $null
+$script:ModbusRuntimeLoaded = $false
 
-function Get-ModbusCliPath {
-    if ($null -ne $script:ModbusCliPath -and (Test-Path $script:ModbusCliPath)) {
-        return $script:ModbusCliPath
+function Get-ModbusRuntimePath {
+    if ($null -ne $script:ModbusRuntimePath -and (Test-Path $script:ModbusRuntimePath)) {
+        return $script:ModbusRuntimePath
     }
-    
-    # Try to find mbdc in PATH
-    $cliCommand = Get-Command mbdc -ErrorAction SilentlyContinue
-    if ($cliCommand) {
-        $script:ModbusCliPath = $cliCommand.Source
-        return $script:ModbusCliPath
-    }
-    
-    # Try to find in module directory
-    $moduleDir = Split-Path -Parent $PSScriptRoot
-    $possiblePaths = @(
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Release\net10.0\mbdc.exe"),
-        (Join-Path $moduleDir "ModbusDirectConnect.CLI\bin\Debug\net10.0\mbdc.exe"),
-        (Join-Path $moduleDir "mbdc.exe"),
-        (Join-Path $moduleDir "mbdc")
+
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $candidates = @(
+        (Join-Path $PSScriptRoot 'lib/mbdc.dll'),
+        (Join-Path $repoRoot 'ModbusDirectConnect.CLI/bin/Release/net10.0/mbdc.dll'),
+        (Join-Path $repoRoot 'ModbusDirectConnect.CLI/bin/Debug/net10.0/mbdc.dll')
     )
-    
-    foreach ($path in $possiblePaths) {
-        if (Test-Path $path) {
-            $script:ModbusCliPath = $path
-            return $script:ModbusCliPath
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            $script:ModbusRuntimePath = $candidate
+            return $script:ModbusRuntimePath
         }
     }
-    
-    throw "mbdc executable not found. Please ensure it is installed and in your PATH, or set the path using Set-ModbusCliPath."
+
+    throw "Modbus runtime assembly not found. Expected mbdc.dll in '$PSScriptRoot/lib' for packaged modules."
 }
 
-function Set-ModbusCliPath {
-    <#
-    .SYNOPSIS
-        Sets the path to the mbdc executable
-    .PARAMETER Path
-        Full path to the mbdc executable
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$Path
-    )
-    
-    if (-not (Test-Path $Path)) {
-        throw "The specified path does not exist: $Path"
+function Initialize-ModbusRuntime {
+    if ($script:ModbusRuntimeLoaded) {
+        return
     }
-    
-    $script:ModbusCliPath = $Path
+
+    $runtimePath = Get-ModbusRuntimePath
+    Add-Type -Path $runtimePath
+    $script:ModbusRuntimeLoaded = $true
 }
 
-function Invoke-ModbusCli {
+function Test-SerialTarget {
     param(
-        [string[]]$Arguments
+        [string]$Target
     )
-    
-    $cliPath = Get-ModbusCliPath
-    
-    # On Windows, use .exe; on Unix, use the dll with dotnet
-    if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
-        & $cliPath @Arguments
-    } else {
-        # For cross-platform, try using dotnet
-        $dllPath = $cliPath -replace '\.exe$', '.dll'
-        if (Test-Path $dllPath) {
-            & dotnet $dllPath @Arguments
-        } else {
-            & $cliPath @Arguments
+
+    if ([string]::IsNullOrWhiteSpace($Target)) {
+        return $false
+    }
+
+    return $Target -match '^(?:(?:\\\\\.\\)?COM\d+|/dev/.+)$'
+}
+
+function Resolve-ModbusTransport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Transport,
+
+        [string]$Target
+    )
+
+    $normalized = $Transport.Trim().ToLowerInvariant()
+
+    switch ($normalized) {
+        'auto' {
+            if (Test-SerialTarget -Target $Target) {
+                return 'rtu-serial'
+            }
+
+            return 'tcp'
+        }
+        'tcp' { return 'tcp' }
+        'tcp/ip' { return 'tcp' }
+        'rtu-tcp' { return 'rtu-tcp' }
+        'tcp/ip-rtu' { return 'rtu-tcp' }
+        'rtu-serial' { return 'rtu-serial' }
+        'serial' { return 'rtu-serial' }
+        default {
+            throw "Unsupported transport '$Transport'."
         }
     }
 }
 
-function Get-ProtocolArgs {
+function New-ModbusSession {
     param(
-        [string]$Protocol
+        [string]$Target,
+        [int]$Port,
+        [byte]$SlaveId,
+        [int]$TimeoutMs,
+        [string]$Transport,
+        [int]$Baud
     )
 
-    if ($Protocol -eq "rtu") {
-        return @("--rtu")
+    Initialize-ModbusRuntime
+
+    if ($TimeoutMs -lt 0) {
+        throw 'TimeoutMs must be zero or greater.'
     }
 
-    return @()
+    $resolvedTransport = Resolve-ModbusTransport -Transport $Transport -Target $Target
+
+    $serialBaud = $null
+    if ($resolvedTransport -eq 'rtu-serial') {
+        if ($Baud -le 0) {
+            throw 'Baud must be a positive integer.'
+        }
+
+        $serialBaud = $Baud
+    }
+
+    $options = [ModbusDirectConnect.CLI.Transport.ConnectionOptions]::new(
+        $Target,
+        $null,
+        $Port,
+        $SlaveId,
+        $TimeoutMs,
+        0,
+        $resolvedTransport,
+        $null,
+        $serialBaud,
+        8,
+        'N',
+        '1'
+    )
+
+    $connection = [ModbusDirectConnect.CLI.Transport.EndpointResolver]::Resolve($options)
+    $client = [ModbusDirectConnect.CLI.Client.ModbusClientFactory]::CreateClient($connection)
+
+    return [pscustomobject]@{
+        Client = $client
+        Connection = $connection
+    }
 }
 
-function Convert-TimeoutMsToSeconds {
+function Invoke-WithModbusSession {
     param(
-        [int]$Milliseconds
+        [string]$Target,
+        [int]$Port,
+        [byte]$SlaveId,
+        [int]$TimeoutMs,
+        [string]$Transport,
+        [int]$Baud,
+        [scriptblock]$Operation
     )
 
-    if ($Milliseconds -lt 0) {
-        throw "Timeout must be zero or greater."
+    $session = $null
+    try {
+        $session = New-ModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud
+        return & $Operation $session
     }
+    finally {
+        if ($null -ne $session -and $null -ne $session.Client) {
+            $session.Client.Dispose()
+        }
+    }
+}
 
-    return ([double]$Milliseconds / 1000).ToString("0.###", [System.Globalization.CultureInfo]::InvariantCulture)
+function New-ModbusReadObject {
+    param(
+        [string]$Operation,
+        [int]$FunctionCode,
+        [object]$Connection,
+        [byte]$SlaveId,
+        [uint16]$Address,
+        [uint16]$Count,
+        [object[]]$Values
+    )
+
+    [pscustomobject]@{
+        Request = [pscustomobject]@{
+            Operation = $Operation
+            FunctionCode = $FunctionCode
+            Transport = $Connection.Transport.ToString()
+            Target = $Connection.DisplayTarget
+            UnitId = [int]$SlaveId
+            Address = [int]$Address
+            Count = [int]$Count
+        }
+        Response = [pscustomobject]@{
+            Values = $Values
+            Count = $Values.Count
+            TimestampUtc = [datetime]::UtcNow
+        }
+    }
+}
+
+function New-ModbusWriteObject {
+    param(
+        [string]$Operation,
+        [int]$FunctionCode,
+        [object]$Connection,
+        [byte]$SlaveId,
+        [uint16]$Address,
+        [object[]]$Values
+    )
+
+    [pscustomobject]@{
+        Request = [pscustomobject]@{
+            Operation = $Operation
+            FunctionCode = $FunctionCode
+            Transport = $Connection.Transport.ToString()
+            Target = $Connection.DisplayTarget
+            UnitId = [int]$SlaveId
+            Address = [int]$Address
+            Count = $Values.Count
+            Values = $Values
+        }
+        Response = [pscustomobject]@{
+            Acknowledged = $true
+            TimestampUtc = [datetime]::UtcNow
+        }
+    }
 }
 
 function Get-ModbusCoil {
-    <#
-    .SYNOPSIS
-        Reads coils from a Modbus device
-    .PARAMETER Address
-        Starting address to read from
-    .PARAMETER Count
-        Number of coils to read
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [uint16]$Count,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $args = @(
-        $Host,
-        "--read-coil", $Address,
-        "--count", $Count,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $values = $session.Client.ReadCoilsAsync($Address, $Count).GetAwaiter().GetResult()
+        New-ModbusReadObject -Operation 'ReadCoils' -FunctionCode 1 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Count $Count -Values @($values)
+    }
 }
 
 function Get-ModbusDiscreteInput {
-    <#
-    .SYNOPSIS
-        Reads discrete inputs from a Modbus device
-    .PARAMETER Address
-        Starting address to read from
-    .PARAMETER Count
-        Number of discrete inputs to read
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [uint16]$Count,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $args = @(
-        $Host,
-        "--read-discrete", $Address,
-        "--count", $Count,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $values = $session.Client.ReadDiscreteInputsAsync($Address, $Count).GetAwaiter().GetResult()
+        New-ModbusReadObject -Operation 'ReadDiscreteInputs' -FunctionCode 2 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Count $Count -Values @($values)
+    }
 }
 
 function Get-ModbusHoldingRegister {
-    <#
-    .SYNOPSIS
-        Reads holding registers from a Modbus device
-    .PARAMETER Address
-        Starting address to read from
-    .PARAMETER Count
-        Number of holding registers to read
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [uint16]$Count,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $args = @(
-        $Host,
-        "--read-holding", $Address,
-        "--count", $Count,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $values = $session.Client.ReadHoldingRegistersAsync($Address, $Count).GetAwaiter().GetResult()
+        New-ModbusReadObject -Operation 'ReadHoldingRegisters' -FunctionCode 3 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Count $Count -Values @($values)
+    }
 }
 
 function Get-ModbusInputRegister {
-    <#
-    .SYNOPSIS
-        Reads input registers from a Modbus device
-    .PARAMETER Address
-        Starting address to read from
-    .PARAMETER Count
-        Number of input registers to read
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [uint16]$Count,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $args = @(
-        $Host,
-        "--read-inputreg", $Address,
-        "--count", $Count,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $values = $session.Client.ReadInputRegistersAsync($Address, $Count).GetAwaiter().GetResult()
+        New-ModbusReadObject -Operation 'ReadInputRegisters' -FunctionCode 4 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Count $Count -Values @($values)
+    }
 }
 
 function Set-ModbusCoil {
-    <#
-    .SYNOPSIS
-        Writes a single coil to a Modbus device
-    .PARAMETER Address
-        Address to write to
-    .PARAMETER Value
-        Boolean value to write
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [bool]$Value,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $dataValue = if ($Value) { "1" } else { "0" }
-    $args = @(
-        $Host,
-        "--write-coil", $Address,
-        "--data", $dataValue,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $session.Client.WriteSingleCoilAsync($Address, $Value).GetAwaiter().GetResult()
+        New-ModbusWriteObject -Operation 'WriteSingleCoil' -FunctionCode 5 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Values @($Value)
+    }
 }
 
 function Set-ModbusRegister {
-    <#
-    .SYNOPSIS
-        Writes a single holding register to a Modbus device
-    .PARAMETER Address
-        Address to write to
-    .PARAMETER Value
-        Register value to write (0-65535)
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [uint16]$Value,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $args = @(
-        $Host,
-        "--write-reg", $Address,
-        "--data", $Value,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $session.Client.WriteSingleRegisterAsync($Address, $Value).GetAwaiter().GetResult()
+        New-ModbusWriteObject -Operation 'WriteSingleRegister' -FunctionCode 6 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Values @($Value)
+    }
 }
 
 function Set-ModbusCoils {
-    <#
-    .SYNOPSIS
-        Writes multiple coils to a Modbus device
-    .PARAMETER Address
-        Starting address to write to
-    .PARAMETER Values
-        Array of boolean values to write
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [bool[]]$Values,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $valuesStr = ($Values | ForEach-Object { if ($_ ) { "1" } else { "0" } }) -join ","
-    
-    $args = @(
-        $Host,
-        "--write-multi-coil", $Address,
-        "--data", $valuesStr,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $session.Client.WriteMultipleCoilsAsync($Address, $Values).GetAwaiter().GetResult()
+        New-ModbusWriteObject -Operation 'WriteMultipleCoils' -FunctionCode 15 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Values @($Values)
+    }
 }
 
 function Set-ModbusRegisters {
-    <#
-    .SYNOPSIS
-        Writes multiple holding registers to a Modbus device
-    .PARAMETER Address
-        Starting address to write to
-    .PARAMETER Values
-        Array of register values to write (0-65535)
-    .PARAMETER Host
-        Modbus host address (default: localhost)
-    .PARAMETER Port
-        Modbus port (default: 502)
-    .PARAMETER SlaveId
-        Modbus slave/unit ID (default: 1)
-    .PARAMETER Timeout
-        Connection timeout in milliseconds (default: 5000)
-    .PARAMETER Protocol
-        Protocol type: tcp or rtu (default: tcp)
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [uint16]$Address,
-        
-        [Parameter(Mandatory=$true)]
+
+        [Parameter(Mandatory = $true)]
         [uint16[]]$Values,
-        
-        [string]$Host = "localhost",
+
+        [Alias('Host')]
+        [string]$Target = 'localhost',
+
+        [ValidateSet('auto', 'tcp', 'tcp/ip', 'rtu-tcp', 'tcp/ip-rtu', 'rtu-serial', 'serial')]
+        [string]$Transport = 'auto',
+
         [int]$Port = 502,
         [byte]$SlaveId = 1,
-        [int]$Timeout = 5000,
-        [ValidateSet("tcp", "rtu")]
-        [string]$Protocol = "tcp"
+        [int]$TimeoutMs = 5000,
+        [int]$Baud = 9600
     )
-    
-    $valuesStr = $Values -join ","
-    
-    $args = @(
-        $Host,
-        "--write-multi-reg", $Address,
-        "--data", $valuesStr,
-        "--port", $Port,
-        "--slave", $SlaveId,
-        "--timeout", (Convert-TimeoutMsToSeconds -Milliseconds $Timeout)
-    ) + (Get-ProtocolArgs -Protocol $Protocol)
-    
-    Invoke-ModbusCli -Arguments $args
+
+    Invoke-WithModbusSession -Target $Target -Port $Port -SlaveId $SlaveId -TimeoutMs $TimeoutMs -Transport $Transport -Baud $Baud -Operation {
+        param($session)
+        $session.Client.WriteMultipleRegistersAsync($Address, $Values).GetAwaiter().GetResult()
+        New-ModbusWriteObject -Operation 'WriteMultipleRegisters' -FunctionCode 16 -Connection $session.Connection -SlaveId $SlaveId -Address $Address -Values @($Values)
+    }
 }
 
-# Export module members
 Export-ModuleMember -Function @(
-    'Get-ModbusCliPath',
-    'Set-ModbusCliPath',
     'Get-ModbusCoil',
     'Get-ModbusDiscreteInput',
     'Get-ModbusHoldingRegister',
