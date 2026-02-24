@@ -61,6 +61,7 @@ jobs:
         id: release_channel
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -73,8 +74,8 @@ jobs:
           if [ "${release_created}" = "true" ] \
             && [[ "${tag_name}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
             && [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            is_prerelease="$(gh release view "${tag_name}" --json isPrerelease --jq .isPrerelease 2>/dev/null || echo true)"
-            is_draft="$(gh release view "${tag_name}" --json isDraft --jq .isDraft 2>/dev/null || echo true)"
+            is_prerelease="$(gh release view "${tag_name}" --repo "${GH_REPO}" --json isPrerelease --jq .isPrerelease 2>/dev/null || echo true)"
+            is_draft="$(gh release view "${tag_name}" --repo "${GH_REPO}" --json isDraft --jq .isDraft 2>/dev/null || echo true)"
 
             if [ "${is_prerelease}" = "false" ] && [ "${is_draft}" = "false" ]; then
               stable_release="true"
