@@ -406,7 +406,7 @@ jobs:
     name: Publish Chocolatey Package
     needs: [release-please, upload-release-assets]
     if: needs.release-please.outputs.stable_release == 'true' && vars.ENABLE_CHOCOLATEY_PUBLISH == 'true'
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: read
     env:
